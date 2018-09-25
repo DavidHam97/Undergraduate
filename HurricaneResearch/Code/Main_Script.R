@@ -1,5 +1,5 @@
 ###Parsing Data, Cleaning data### (includes all corrections to inconsistent formats)
-main_path = "~/shared/dae_ham/Project/Hurricane/analysis/R_data_generation/"
+main_path = "YOUR_PATH"
 source(paste0(main_path, "cleaning_data.R"))
 
 ###Add Geocode from Raw Data### (includes all corrections for improper geocode)
