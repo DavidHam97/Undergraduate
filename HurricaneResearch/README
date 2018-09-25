@@ -1,5 +1,3 @@
-###Organization
-
 This research's code folder will contain two main parts
 
 1) Main_Script.R: This is the main script which is a simple flow chart to source other helper functions all located in the folder called "Helper Functions"
