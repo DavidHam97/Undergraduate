@@ -3,7 +3,7 @@ The purpose of this repository is to provide evidence, to those interested, of m
 
 All class projects only have two files. One for the report and one for the code that generated the report. For my R_class because there were two projects, there are four files for that folder.
 
-Research Projects are organized differently
+Research Projects are organized differently and will be elaborated more in a README file in the folders themselves.
 1) Hurricane Research will only have a code folder because the paper has only been submitted and is currently under review while the conference is expected to happen next year also.
 
 2) The Radiobiology Research will have three main folders. One for conference related documents, one for the GCRFibroCA project that was part of my first research project, and another folder labelled Identifiability Analysis for my most recent self initiated project for a planned submission to JASA.
