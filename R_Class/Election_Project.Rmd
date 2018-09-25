@@ -1,0 +1,968 @@
+#Election Project By: Dae Woong Ham, Anci Sun, Jessica Hu, Winnie Yan, Jiayi Huang
+
+#Introduction
+This project is a geo-political project analyzing the elections and ultimately building two predictors related to the 2016 election results. To mainly outline this project, all of us applied our web scraping skills to extract the data necessary from online sources to build a final data frame with many variables necessary to analyze the elections including election results for four elections starting from 2004 on a county level. After this data frame was built one very specific map was coded in great detail to explore any variable or factor in the 2016 election. The one we chose for our project was exploring the relationship between white proportions in counties with the proportion of trump votes. This will be later elaborated on in part 3 of this report. Lastly, we built our predictors using classification trees for predicting the 2016 results and used the K-NN method to predictor the change from 2012 to 2016. Our general step to organize information was done through informative titles and detailed explanation before each code chunk including analysis for any plot given and logic used if unclear. 
+
+#Data Description
+The final data frame had a total of 3082 rows which each corresponded to a county and many variables related to numerous elections and census data about each county. The columns are divided into three main sections: the geography of the county, the census data of the county, and the election information about the county. 
+
+The geography of the county includes the state in which the county is located in and the latitude and longtitude. The state variable is espicially important for merging purposes in part 1 of the project and the latitude and longtitude becomes important for drawing any sorts of map. 
+
+The census data takes the bulk of the variables with around 37 extracted variables. These variables describe statistics about the following things: employment, income, education, language spoken, native born, and white proportion. These things become espicially important when building our predicators and also become important when analyzing key variables that could have influenced the election or not. Later in part 3, the world map was constructed off the white proportion variable and how that impacted the election of 2016. 
+
+The last main section of the columns are the election votes themselves. The election results that were included were: 2004, 2008, 2012, and 2016. These four election votes all came from different sources, where some sources gave us counts and some gave us proportions. To standardize things, all proportions were given in a real number between 0-1 not in a % format. Moreoever, for sources that weren't given proportion, proportions were manually created by simple divisions from counts. 2012 and 2016 were espicially important election results to build predicators and then test these predicators for actual 2016 results. 
+
+```{r, message=TRUE, warning=TRUE, include=FALSE}
+#let's first provide all the state_names this will provide to be useful throughout other data extraction too
+state_names = c("alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut", "delaware", "district-of-columbia", "florida", "georgia", "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine", "maryland", "massachusetts", "michigan", "minnesota", "mississippi", "missouri", "montana", "nebraska", "nevada", "new-hampshire", "new-jersey", "new-mexico", "new-york", "north-carolina", "north-dakota", "ohio", "oklahoma", "oregon", "pennsylvania", "rhode-island", "south-carolina", "south-dakota", "tennessee", "texas", "utah", "vermont", "virginia", "washington", "west-virginia", "wisconsin", "wyoming")
+
+require(XML)
+lat_long = "http://www.stat.berkeley.edu/~nolan/data/voteProject/counties.gml"
+lat_long_doc = xmlParse(lat_long)
+lat_long_root = xmlRoot(lat_long_doc)
+
+abbrev = as.vector(xpathSApply(lat_long_root, '//state/gml:name', xmlAttrs))
+#this gets all the abbreviated states in this document, this will be useful when writing the state names for each county
+
+county = vector(length = 0)
+state = vector(length = 0)
+for (i in 1:length(abbrev)) {
+  extracted_counties = xpathSApply(lat_long_root, paste0('//state[./gml:name[@abbreviation = ', "'", abbrev[i], "'",']]/county/gml:name'), xmlValue) 
+  #the reason I had to paste these extra quotation marks is because the abbrevation   value needs a quotation mark around to be searched for hence I did this
+  county = c(county, extracted_counties)
+  state = c(state, rep(state_names[i], length(extracted_counties)))
+}
+#this for loops keeps track of all the counties with respect to what state they are by using the simple repetition and looping through each state.
+
+county = gsub("\n    ", "", county)
+#Just cleans up unncesary information in the county
+
+county_lat = xpathSApply(lat_long_root, '//gml:Y', xmlValue)
+county_lat = gsub("\n      ", "", county_lat)
+county_lat = as.integer(county_lat)
+#there were unnecessary characters
+
+county_long = xpathSApply(lat_long_root, '//gml:X', xmlValue)
+county_long = gsub("\n      ", "", county_long) 
+county_long = as.integer(county_long)
+#there were unnecessary characters
+
+summary(county_lat)
+#these summary statistics show that these latitude and longtitudes are not in the right format
+county_lat = round(as.integer(county_lat)/1000000, digits = 2)
+county_long = round(as.integer(county_long)/1000000, digits = 2)
+
+
+lat_long_df = data.frame(state, county, county_lat, county_long)
+
+#let's just start cleaning up the data frame so it's proper in both classes and results.
+#tells us all classes and shows they aren't formatted correctly
+sapply(lat_long_df, class)
+lat_long_df$county = as.character(lat_long_df$county)
+lat_long_df$state = as.character(lat_long_df$state)
+
+library(readr)
+election_2004_results = read.table("http://www.stat.berkeley.edu/~nolan/data/voteProject/countyVotes2004.txt", 
+               sep="", 
+               col.names=c("countyName", "bushVote","kerryVote"), 
+               fill=FALSE, 
+               strip.white=TRUE)
+election_2004_results = election_2004_results[-c(1), ]
+election_2004_results$countyName = as.character(election_2004_results$countyName)
+#to clean extract the counties and states using gsub.
+election_2004_results$county = gsub(".*,(.*)", "\\1", election_2004_results[, 1])
+election_2004_results$state = gsub(",.*", "", election_2004_results[, 1])
+#now we can just remove the countyName part
+election_2004_results = election_2004_results[, -1]
+election_2004_results$bushVote = as.integer(election_2004_results$bushVote)
+election_2004_results$kerryVote = as.integer(election_2004_results$kerryVote)
+
+
+#Seperate part for getting virginia (lecture notes)
+library(XML)
+library(RCurl)
+wikiURL = "https://en.wikipedia.org/wiki/United_States_presidential_election_in_Virginia,_2004"
+pageContents = getURLContent(wikiURL)
+pDoc = htmlParse(pageContents)
+pRoot = xmlRoot(pDoc)
+
+pTables = readHTMLTable(pageContents)
+
+vote04 = readHTMLTable(pageContents, which = 9, 
+                     colClasses = c("character",
+                                    "Percent", "FormattedInteger",
+                                    "Percent", "FormattedInteger",
+                                    "Percent", "FormattedInteger"),
+                     stringsAsFactors = FALSE)
+#now to incorporate these counties into the main data frame let's make a few changes
+#first get rid of the others vote and all the % since the main source didn't include them
+vote04 = vote04[, c(-2, -4, -6, -7)]
+#then take away all the Virginias in some of the counties name and then add Virigina to the a new column called state 
+vote04[, 1] = gsub(", Virginia", "", vote04[, 1])
+vote04$state = rep("virginia", length = length(vote04[, 1]))
+#let's lower case the county approriately 
+vote04$`County or City` = tolower(vote04$`County or City`)
+#change the name to the same as election_2004_results name to rbind properly
+names(vote04) = c("county", "kerryVote", "bushVote", "state")
+#now we're ready to append the data frame
+election_2004_results = rbind.data.frame(election_2004_results, vote04, stringsAsFactors = FALSE)
+
+#this package is used to directly extract an xlsx file. Note this require java to be downloaded
+#this package is used to directly extract an xlsx file. Note this require java to be downloaded
+library(xlsx)
+append <- read.xlsx("~/Downloads/countyVotes2008.xlsx",1)
+state_names_2008 = as.character(append[c(1:8, 10:51),1])
+state_names_2008 = unlist(strsplit(state_names_2008,split="*", fixed=TRUE))
+
+state_names_2008
+
+states = character()
+county = character()
+obama_count = numeric()
+mccain_count = numeric()
+other_count = numeric()
+state_names_nodc = state_names[state_names != "district-of-columbia"]
+id = 1
+
+for (i in state_names_2008) {
+    append <- read.xlsx("~/Downloads/countyVotes2008.xlsx", i)
+    county = c(county, as.character(append$County.))
+    states = c(states, rep(state_names_nodc[id], nrow(append)))
+    obama_count = c(obama_count, append$Obama.)
+    mccain_count = c(mccain_count, append$McCain.)
+    other_count = c(other_count, append$Other)
+    id = id + 1
+}
+
+#special stuff for DC
+states = c(states, "district of columbia")
+county = c(county, "district of columbia")
+append = read.xlsx("~/Downloads/countyVotes2008.xlsx", 1)
+append = append[append$STATE == "D.C.",]
+
+obama_count = c(obama_count, append$OBAMA)
+tail(obama_count)
+mccain_count = c(mccain_count, append$MCCAIN)
+other_count = c(other_count, 0)
+election_2008_results <- data.frame(states = states, 
+                        county = county, 
+                        obama_count = obama_count,
+                        mccain_count = mccain_count, 
+                        other_count = other_count)
+election_2008_results$county = tolower(election_2008_results$county)
+
+#2012 election results
+#I realized this 2012 election results didn't have alaska so I will remove that from my state names and then use the paste function to loop through each link to each respective state.
+x = state_names[-2]
+require(XML)
+election_2012 = function(state) {
+  root = xmlRoot(xmlParse(paste0("http://www.stat.berkeley.edu/~nolan/data/voteProject/countyVotes2012/", state, ".xml")), stringsAsFactors = FALSE)
+  romney_count = xpathSApply(root, '//tr[@class = "party-republican" or @class = "party-republican race-winner"]//td[@class ="results-popular"]', xmlValue)
+  romney_count = as.integer(gsub("[[:space:]]|,", "", romney_count))
+  romney_prop = xpathSApply(root, '//tr[@class = "party-republican" or @class = "party-republican race-winner"]//td[@class ="results-percentage"]', xmlValue)
+  obama_count = xpathSApply(root, '//tr[@class = "party-democrat" or @class = "party-democrat race-winner"]//td[@class ="results-popular"]', xmlValue)
+  obama_votes = as.integer(gsub("[[:space:]]|,", "", obama_count))
+  obama_prop = xpathSApply(root, '//tr[@class = "party-democrat" or @class = "party-democrat race-winner"]//td[@class ="results-percentage"]', xmlValue)
+  county = xpathSApply(root, '//th[@class = "results-county"]', xmlValue)
+  county = gsub(" [0-9]+.[0-9]% Reporting", "", county)[-1] 
+  #cleaning up the % reporting in the counties and unnecessary one county in the beginning
+  states = rep(state, length(county))
+  df = data.frame(states, county, romney_count, romney_prop, obama_count, obama_prop)
+  return(df)
+} 
+
+election_2012_result = data.frame()
+for (i in 1:length(x)) {election_2012_result = rbind(election_2012_result, election_2012(x[i]))}
+
+class(election_2012)
+election_2012_result$county = as.character(election_2012_result$county)
+
+election_2016 = read.csv("http://www.stat.berkeley.edu/users/nolan/data/voteProject/2016_US_County_Level_Presidential_Results.csv")
+election_2016_data = data.frame(election_2016)
+# Alaska has multiple rows of the same values. Not sure why. But shouldn't be too big of a problem when later doing the merges.
+# since states are in abbreviation instead of full names, I want to convert them into full names. 
+abbre_full = data.frame(abbrev, state_names)
+election_2016_full = merge(election_2016_data, abbre_full, by.x = "state_abbr", by.y = "abbrev")
+prop_clinton = election_2016_data$votes_dem / election_2016_data$total_votes
+prop_trump = election_2016_data$votes_gop / election_2016_data$total_votes
+clinton_count = election_2016_data$votes_dem
+trump_count = election_2016_data$votes_gop
+election_2016_result = data.frame(states = election_2016_full$state_names, county = election_2016_full$county_name, clinton_count = clinton_count, prop_clinton = prop_clinton, trump_count = trump_count, prop_trump = prop_trump)
+
+B01003_file = read.csv("http://www.stat.berkeley.edu/~nolan/data/voteProject/census2010/B01003.csv")
+
+#counties repeat a lot so just all of the third columns and then get unique one
+county = unique(as.character((B01003_file[1:8068, 3])))
+#realized there were carribbean islands puerto rico which isn't US state remove that
+county = county[-(3140:length(county))]
+#index 1802 for some reason had it in "Do\xf1a Ana County, New Mexico", so I just retyped it to represent the correct way
+county[1802] = "Doxfla Ana County, New Mexico"
+#County names contained in everything before comma and state name contained after comma
+state = gsub(".*, ", "", county)
+county = gsub("(.*),.*", "\\1", county)
+#for merging purposes later
+state = as.character(state)
+county = as.character(county)
+
+#I will remove all rows after 3140 because I know they are puerto rican related states
+
+#total population has label "Total population" can search this way
+total_pop_index = which(B01003_file[, 5] == "Total population")
+total_pop = B01003_file[total_pop_index, 6]
+
+#total white population has label "White alone" can search this way
+total_white_index = which(B01003_file[, 5] == "White alone")
+total_white = B01003_file[total_white_index, 6]
+length(total_white)
+length(total_pop)
+
+#what I have realized is that exactly 3 white population were not recorded because the count was too small. I want to identify the indexes of when that occurs and just add a 0 3 times to those and split my search 3 times. Also note if a white population is recorded it always comes right after the total population that's why I can add 1 and see if it matches
+which((total_pop_index + 1 == total_white_index) == FALSE)[1]
+#index 1432 first time where white population isn't recorded. Will fix this first by making it 0 should be = 0
+total_white_1 = B01003_file[total_white_index[1:1431], 6]
+total_white_1 = c(total_white_1 , 0) 
+
+#now repeat this step to check when it next occurs by just checking from the next point by shifting index to make it match up again
+which((total_pop_index[1433:length(total_pop_index)] + 1 == total_white_index[1432:length(total_white_index)]) == FALSE)[1] 
+total_white_index[1432:length(total_white_index)] #index 937
+total_white_2 = B01003_file[total_white_index[1432:(1432+935)], 6]
+total_white_2 = c(total_white_2, 0)
+
+#repeat for the last time by using the same trick to shift the indices to match up. It's not +1 anymore since we have to account for the last shifted indices so + 2.
+which((total_pop_index[(1432+939):length(total_pop_index)] + 1 == total_white_index[(1432+937):length(total_white_index)]) == FALSE)[1] 
+#gave me index 47
+total_white_3 = B01003_file[total_white_index[(1432+936):(1432+935+47)], 6]
+total_white_3 = c(total_white_3, 0)
+total_white_4 = B01003_file[total_white_index[(1432+935+48):length(total_white_index)], 6]
+total_white = c(total_white_1, total_white_2, total_white_3, total_white_4)
+
+#now let's get rid of the puerto rican ones
+total_pop = total_pop[-(3140:length(total_pop))]
+total_white = total_white[-(3140:length(total_white))]
+#getting proportion is possibly easier to read so I'll get that too
+white_prop = total_white/total_pop
+
+#for visual sake let's just take up to 2 decimal points
+white_prop = round(white_prop, digits = 2)
+
+#just to check
+which(white_prop > 1) #good that it returns no proportion greater than 0. Means it's matched well
+
+#creating the dataframe
+white_proportion_df = data.frame(state, county, total_pop, total_white, white_prop)
+
+#getting more census variables from DP02 file
+DP02_file = read.csv("http://www.stat.berkeley.edu/users/nolan/data/voteProject/census2010/DP02.csv")
+
+#first get the county
+county = as.character(DP02_file[, 3])
+#index 1802 for some reason had it in "Do\xf1a Ana County, New Mexico", so I just retyped it to represent the correct way
+county[1802] = "Doxfla Ana County, New Mexico"
+#County names contained in everything before comma and state name contained after comma
+state = gsub(".*, ", "", county)
+county = gsub("(.*),.*", "\\1", county)
+
+#get average household count contained in column 62
+average_household_size = DP02_file[, 62]
+
+#average family size contained in column 66
+average_family_size = DP02_file[, 66]
+
+#Education (all in %)
+high_school_enrollment = DP02_file[, 192]
+college_graduate_enrollment = DP02_file[, 196]
+less_than_9th_grade = DP02_file[, 204]
+high_school_no_diploma = DP02_file[, 208]
+high_school_graduate = DP02_file[, 212]
+somecollege_nodegree = DP02_file[, 216]
+bachelor_degree = DP02_file[, 224]
+graduate_professor = DP02_file[, 228]
+highschool_graduate_or_higher = DP02_file[, 232]
+bachelor_or_higher = DP02_file[, 236]
+
+native_born_US = DP02_file[, 276]
+foreign_born_US = DP02_file[, 292]
+
+language_other_than_english = DP02_file[, 320]
+
+DP02_df = data.frame(state, county, average_household_size, average_family_size, high_school_enrollment, college_graduate_enrollment, less_than_9th_grade, high_school_no_diploma, high_school_graduate, somecollege_nodegree, bachelor_degree, graduate_professor, highschool_graduate_or_higher, bachelor_or_higher, native_born_US, foreign_born_US, language_other_than_english)
+
+#DP03 cenus data 
+DP03_file = read.csv("http://www.stat.berkeley.edu/users/nolan/data/voteProject/census2010/DP03.csv")
+
+#first get the county
+county = as.character(DP03_file[, 3])
+#realized there were carribbean islands puerto rico which isn't US state remove that
+county = county[-(3140:length(county))]
+#index 1802 for some reason had it in "Do\xf1a Ana County, New Mexico", so I just retyped it to represent the correct way
+county[1802] = "Doxfla Ana County, New Mexico"
+#County names contained in everything before comma and state name contained after comma
+state = gsub(".*, ", "", county)
+county = gsub("(.*),.*", "\\1", county)
+
+#% employment data per county
+unemployment_rate = DP03_file[, 32]
+employment_rate_labor = DP03_file[, 40]
+#note MBSA = management business science arts
+employment_MBSA = DP03_file[, 64]
+employment_service = DP03_file[, 68]
+#note AFFHM = Agriculture, forestry, fishing and hunting, and mining
+employment_AFFHM = DP03_file[, 76]
+employment_construction = DP03_file[, 80]
+employment_manufacturing = DP03_file[, 84]
+employment_scientific_waste = DP03_file[, 96]
+employment_health_education = DP03_file[, 100]
+
+#income data per county all fixed to inflation
+below_10000 = DP03_file[, 112]
+ten_thousand_to_15000 = DP03_file[, 116]
+fifteen_thousand_to_25000 = DP03_file[, 120]
+twenty_five_thousand_to_75000 = DP03_file[, 124]
+seventy_five_thousand_to_100000 = DP03_file[, 128]
+#create our own variable for better information
+below_100000 = below_10000 + ten_thousand_to_15000 + fifteen_thousand_to_25000 + twenty_five_thousand_to_75000 + seventy_five_thousand_to_100000
+over_200000 = DP03_file[, 148]
+median_income = DP03_file[, 150]
+mean_income = DP03_file[, 154]
+below_poverty_line = DP03_file[, 328]
+
+#the reason why I do this first is because I can take off all the rows that have puerto rico at the same time
+DP03_df_without_countystate = data.frame(unemployment_rate, employment_health_education, employment_scientific_waste, employment_manufacturing, employment_construction, employment_AFFHM, employment_service, employment_MBSA, employment_rate_labor, below_10000, ten_thousand_to_15000, fifteen_thousand_to_25000, twenty_five_thousand_to_75000, seventy_five_thousand_to_100000, below_100000, over_200000, median_income, mean_income, below_poverty_line)
+
+DP03_df_without_countystate = DP03_df_without_countystate[-(3140:nrow(DP03_df_without_countystate)), ]
+
+DP03_df_without_countystate$county = county
+DP03_df_without_countystate$state = state
+
+DP03_df = DP03_df_without_countystate
+
+#Let's merge all the three census data first. 
+
+a = merge(DP03_df, DP02_df, by.x = c("state", "county"), by.y = c("state", "county"))
+nrow(a)
+nrow(DP03_df)
+#shows that same number of rows
+
+merged_census_df = merge(a , white_proportion_df, by.x = c("state", "county"), by.y = c("state", "county"))
+nrow(a)
+nrow(merged_census_df)
+#shows that same number of rows so merging is so far fine
+
+#merge census data with latitude longtitude. First got to clean up the cases of the state. Should make it all lower to match
+merged_census_df$state = tolower(merged_census_df$state)
+
+#many of the states are written like north-carolina, but the merged census data only has north carolina. So I will get rid of all the dashes. I found this out by looking at first the merge without this fix and realized there are a lot less data. 
+lat_long_df$state = gsub("-", " ", lat_long_df[, 1])
+
+b = merge(merged_census_df, lat_long_df, by.x = c("state", "county"), by.y = c("state", "county"))
+nrow(b)
+nrow(merged_census_df)
+#we lost 14 rows we'll go check what's missing by using the all = TRUE arguement which basically keeps all rows but puts NA where information is missing
+b = merge(merged_census_df, lat_long_df, by.x = c("state", "county"), by.y = c("state", "county"), all = TRUE)
+b$county[which(is.na(b$county_lat))]
+#realized that City and Borough was written for the merged_census_df but written as just Borough for the lat_long_df will fix this
+merged_census_df$county = gsub("City and Borough", "Borough", merged_census_df$county)
+#realized municipality was written as borough in the lat_long_df will fix this
+merged_census_df$county = gsub("Municipality", "Borough", merged_census_df$county)
+b = merge(merged_census_df, lat_long_df, by.x = c("state", "county"), by.y = c("state", "county"))
+nrow(merged_census_df)
+nrow(b)
+#now only lost 1 county this is fine
+
+#we notice that election_2012_result data frame doesn't have county as part of the county name so we have to take that out of the ones that do have county
+b$county = gsub(" County", "", b$county)
+#next we want to lower all the counties for both the data frames.
+election_2012_result$county = tolower(election_2012_result$county)
+b$county = tolower(b$county)
+#we will deal with the "-" state names the same way
+election_2012_result$states = gsub("-", " ", election_2012_result$states)
+#get rid of county in election_2012_result df too
+election_2012_result$county = gsub(" county", "", election_2012_result$county)
+
+#now we are ready to merge
+c = merge(b, election_2012_result, by.x = c("state", "county"), by.y = c("states", "county"))
+nrow(b)
+nrow(c)
+#we lost around 133 rows see where we lost the data
+c = merge(b, election_2012_result, by.x = c("state", "county"), by.y = c("states", "county"), all = TRUE)
+head(c$county[which(is.na(c$romney_count))])
+
+#we realized that the word parish was messing up the matching so we will remove all parish from b.
+b$county = gsub(" parish", "", b$county)
+c = merge(b, election_2012_result, by.x = c("state", "county"), by.y = c("states", "county"))
+nrow(b)
+nrow(c)
+#removing the parish made us lose only 70 from 153
+c = merge(b, election_2012_result, by.x = c("state", "county"), by.y = c("states", "county"), all = TRUE)
+head(c$county[which(is.na(c$romney_count))])
+#realized that jefferson was written as jeff shorthand for two word county names in the election_2012_result
+election_2012_result$county = gsub("jeff ", "jefferson ", election_2012_result$county)
+
+#let's get brooklyn standardized, make it kings. 
+election_2012_result$county[1802] = "kings"
+
+#we realized the 2012 election data frame has some written without the city while b has written it as city so we can just select those mismatched ones with city and then remove city.
+#first get the index numbers of all the cities in the b county to gsub them later.
+mismatched_cities = c$county[which(is.na(c$romney_count))][grep(" city", c$county[which(is.na(c$romney_count))])]
+index = vector(length = 0)
+for (i in 1:length(mismatched_cities)) {
+  index = c(index, which(b$county == mismatched_cities[i]))
+}
+index = as.numeric(index)
+b$county[index] = gsub(" city", "", b$county[index])
+c = merge(b, election_2012_result, by.x = c("state", "county"), by.y = c("states", "county"))
+nrow(b)
+nrow(c)
+#the rest of the 36 counties we lost is mostly because the election_2012_result data didn't contain the state alaska in its source
+
+#let's merge 2004 election results
+#luckily 2004 election results was formatted without the "-" so no need to remove it
+d = merge(c, election_2004_results, by.x= c("state", "county"), by.y = c("state", "county"))
+nrow(c)
+nrow(d)
+#we lost around 50 rows let's check what we lost
+d = merge(c, election_2004_results, by.x= c("state", "county"), by.y = c("state", "county"), all = TRUE)
+d$county[which(is.na(d$bushVote))]
+#we realized that there's no dot after the st in the election_2004 data frame so we will remove all those
+c$county = gsub("st[.]", "st", c$county)
+d = merge(c, election_2004_results, by.x= c("state", "county"), by.y = c("state", "county"))
+nrow(c)
+nrow(d)
+d = merge(c, election_2004_results, by.x= c("state", "county"), by.y = c("state", "county"), all = TRUE)
+d$county[which(is.na(d$bushVote))]
+#realized that apostrophe is present in c but not in the election_2004_result df
+c$county = gsub("'", "", c$county)
+#realized dekalb in 2004 election results were all written as de kalb with a space same problem with desoto
+election_2004_results$county[election_2004_results$county == "de kalb"] = "dekalb"
+election_2004_results$county[election_2004_results$county == "de soto"] = "desoto"
+#district of columbia in the 2004 election results df has the county as washington but c data frame has it as district of columbia we will keep it as district of columbia
+election_2004_results$county[election_2004_results$state == "district of columbia"] = "district of columbia"
+#also miami-dade is written in different formats so will fix this
+election_2004_results$county[326] = "miami-dade"
+#also election_2004_results has two bedfords, which one of is it a city (the one with the smaller proportion)
+election_2004_results$county[3072] = "bedford city"
+d = merge(c, election_2004_results, by.x= c("state", "county"), by.y = c("state", "county"))
+nrow(c)
+nrow(d)
+#now we have lost only 8 results mostly because of hawaii being absent in 2004 results
+
+#merge 2016 election results
+#first clean up the county names to be matched up with our merged dataframe so far.
+election_2016_result$county = tolower(gsub(" County", "", election_2016_result$county))
+#next clean up the "-" present in the state names
+election_2016_result$states = gsub("-", " ", election_2016_result$states)
+
+e = merge(d, election_2016_result, by.x = c("state", "county"), by.y = c("states", "county"))
+nrow(d)
+nrow(e)
+#we lost 116 rows in this merge. See what's missing
+e = merge(d, election_2016_result, by.x = c("state", "county"), by.y = c("states", "county"), all = TRUE)
+head(e$county[which(is.na(e$prop_trump))])
+#same problem as above, the st. the period causes discrepencies
+election_2016_result$county = gsub("st[.]", "st", election_2016_result$county)
+#parish is also causing the same problem
+election_2016_result$county = gsub(" parish", "", election_2016_result$county)
+#same problem with the apostrophe
+election_2016_result$county = gsub("'", "", election_2016_result$county)
+e = merge(d, election_2016_result, by.x = c("state", "county"), by.y = c("states", "county"), all = TRUE)
+e$county[which(is.na(e$prop_trump))]
+#one major problem is that many virginia counties have cities in the name in 2016 result but not in the e. Will select those and then get rid of those cities by knowing that all the lost information except shannon was all because of this city problem
+virginia_city = e$county[which(is.na(e$prop_trump))][-1]
+index = vector(length = 0)
+for (i in 1:length(virginia_city)) {
+  index = c(index , which(d$county == virginia_city[i] & d$state == "virginia"))
+}
+d$county[index] = paste(d$county[index], "city")
+e = merge(d, election_2016_result, by.x = c("state", "county"), by.y = c("states", "county"))
+nrow(d)
+nrow(e)
+#great we only lost 2 now and that one is "shannon" county which the election_2016_result didn't have and the bedford city which the 2016 also didn't have
+
+#last merge is on the 2008 election results
+#clean up the "-" present in the state names
+election_2008_results$states = gsub("-", " ", election_2008_results$states)
+#2008 election county names also weirdly have a space after its name so will take that out too
+election_2008_results$county = gsub("(.+) ", "\\1", election_2008_results$county)
+
+final_data_frame = merge(e, election_2008_results, by.x = c("state", "county"), by.y = c("states", "county"))
+nrow(e)
+nrow(final_data_frame)
+#lost 66 rows let's check where we lost it
+final_data_frame = merge(e, election_2008_results, by.x = c("state", "county"), by.y = c("states", "county"), all = TRUE)
+head(final_data_frame$county[which(is.na(final_data_frame$mccain_count))])
+#realize the same problem with the st. will fix this
+election_2008_results$county = gsub("st[.]", "st", election_2008_results$county)
+#take care of brooklyn
+election_2008_results$county[1803] = "kings"
+#weirldy district of columbia doesn't have spaces in the 2008 df will fix this
+election_2008_results$county[3115] = "district of columbia"
+#take out the county in 2008 df
+election_2008_results$county = gsub(" county", "", election_2008_results$county)
+#jefferson davis is written as jeff davis change this
+election_2008_results$county = gsub("jeff ", "jefferson ",election_2008_results$county)
+#take out all apostrophes
+election_2008_results$county = gsub("'", "", election_2008_results$county)
+
+final_data_frame = merge(e, election_2008_results, by.x = c("state", "county"), by.y = c("states", "county"))
+nrow(e)
+nrow(final_data_frame)
+#still missing around 30 something rows
+final_data_frame = merge(e, election_2008_results, by.x = c("state", "county"), by.y = c("states", "county"), all = TRUE)
+final_data_frame$county[which(is.na(final_data_frame$mccain_count))]
+#same problem as above the city is missing in 2008 for viginia counties.
+virginia_city = final_data_frame$county[which(is.na(final_data_frame$mccain_count))][c(-1, -2)]
+virginia_city = gsub(" city", "", virginia_city)
+index = vector(length = 0)
+for (i in 1:length(virginia_city)) {
+  index = c(index , which(election_2008_results$county == virginia_city[i] & election_2008_results$states == "virginia"))
+}
+election_2008_results$county[index] = paste(election_2008_results$county[index], "city")
+#last fix is on lewis and clark written as lewis & clark in 2008
+election_2008_results$county[1594] = "lewis and clark"
+final_data_frame = merge(e, election_2008_results, by.x = c("state", "county"), by.y = c("states", "county"))
+nrow(e)
+nrow(final_data_frame)
+#no information is lost!
+
+#this is just to convert the known obama and romney % to a proportion from 0-1
+final_data_frame$romney_prop = 
+  as.numeric(gsub("%", "", as.character(final_data_frame$romney_prop)))/100
+final_data_frame$obama_prop = 
+  as.numeric(gsub("%", "", as.character(final_data_frame$obama_prop)))/100
+
+#get bush and kerry votes by doing division over those two votes combined
+final_data_frame$bushVote = as.numeric(final_data_frame$bushVote)
+final_data_frame$kerryVote = as.numeric(final_data_frame$kerryVote)
+
+final_data_frame$bush_prop = 
+  final_data_frame$bushVote/(final_data_frame$bushVote + final_data_frame$kerryVote)
+final_data_frame$kerry_prop = 
+  final_data_frame$kerryVote/(final_data_frame$bushVote + final_data_frame$kerryVote)
+
+#since 2008 also has obama in there I will rename the obama related columns to 2012 and 2008.
+names(final_data_frame)[names(final_data_frame) == "obama_count.x"] = "obama_count_2012"
+names(final_data_frame)[names(final_data_frame) == "obama_count.y"] = "obama_count_2008"
+names(final_data_frame)[names(final_data_frame) == "obama_prop"] = 
+"obama_prop_2012"
+
+final_data_frame$obama_prop_2008 = 
+  final_data_frame$obama_count_2008 / (final_data_frame$obama_count_2008 + final_data_frame$mccain_count + final_data_frame$other_count)
+final_data_frame$mccain_prop_2008 = 
+  final_data_frame$mccain_count / (final_data_frame$obama_count_2008 + final_data_frame$mccain_count + final_data_frame$other_count)
+nrow(final_data_frame)
+
+#first will make sure these counties are actually on the proper place in the world
+require(maps)
+require(ggplot2)
+all_county = map_data("county")
+county_map = ggplot() + geom_polygon(data=all_county, aes(x=long, y=lat, group = group), colour="white", fill="grey10")
+checking_map = county_map + geom_point(data = final_data_frame, aes(x = county_long, y = county_lat, col = "blue"), alpha = 0.7)
+checking_map
+#great these dots are actually inside the counties 
+
+#then will make sure the proportions I created are actually proportions
+summary(final_data_frame$prop_trump)
+summary(final_data_frame$bush_prop)
+#great none of them are above 1
+```
+
+
+#PART 3: Creating A Map
+We were interested in exploring not just Democratic and Republican states on the map but correlation between each county's specific census variable and whether they more Republican (Trump) or more Democrat (Clinton) according to this variable. The variable we chose to explore was the proportion of whites in the county. Since many of Trump's policies and his action point towards a white supremacy and ignorance of minority Americans, we expect that we will see a positive correlation where counties with bigger white proportion will have bigger proportion who voted for Trump. In order to achieve this, I didn't draw data from my final data frame instead I chose to use a specific merged data frame I created just for this map so I lose the least amount of data.
+
+In order to create the map, I first used the maps package that was extremely useful in giving all the latitude and longtitude of each county and for each county allowing the whole map of the United States' with borders on each counties to be drawn (excluding hawaii). The drawing itself took place within ggplot using geom_polygon to draw the map. After drawing the map, I realized I needed a way to show the correlation, so I drew inspiration from previous homeworks and knew that the size and color are two ways to track down variables. However, since both proportions are continous variables, if I chose to just simply designate those variables in size and color I would end up with a continous scale that R makes for me, and for visibility sake it would be hard to see the correlation because there would be so many colors and so many sizes.
+
+To solve this problem, I ended up creating factors which I then could designate the levels I wanted to use to differentiate the colors and sizes. Now all I needed to do was figure out these levels. For this purpose, I created exploratory plots using simple density curves, as these are best for analyzing one continous variable along with the summary function to see the statistics. I first found out that the proportion of whites had a heavily left skewed data where the average for each county was around 0.85. Therefore, I thought it would be best just to allocate the size of the circle to be the proportion of whites with only two levels, below 85% and above 85%. This binary factor would prove to be useful later in the map because then we would see a huge difference between the sizes of the circle hence very easy to differentiate counties with big white proportion and small white proportion. Next, the proportion who voted for Trump was a little more spread out so I broke it up into 5 parts. The reasoning behind breaking it up into 5 parts was directly affected by the fact that in the electoral vote system there are states that go heavily democratic, heavily republican, and swing states. Within these swing counties, for our case, there were those that went just slightly Republican and slightly Democrat. The "slightly" boundary I chose was if they're proportions were within 3 percent of each other. I thought this was reasonable enough. So these were the extra two factors I created.
+
+After making these factors, creating the map was all up to ggplot syntax. I used geom_jitter to jitter the points I made to look more visually pleasing. I then made sure my alpha value was enough to transparently see the dots. After that I just labelled the legend and the map itself, and chose the colors of the dots to reflect roughly democratic blue and republican blue depending on the proportion who voted for trump. 
+
+```{r}
+require(maps)
+require(ggplot2)
+all_county = map_data("county")
+
+#for the purpose of this map let's just merge the census data and trumps and the longtitude and latitude data to lose the least possible information
+#this merge will borrow parts from above
+a = merge(merged_census_df, lat_long_df, by.x = c("state", "county"), by.y = c("state", "county"))
+a$county = tolower(gsub(" County", "", a$county))
+#get rid of parish in data frame a
+a$county = gsub(" parish", "", a$county)
+#fix st. problem
+a$county = gsub("st[.]", "st", a$county)
+a$county = gsub("'", "", a$county)
+trump_df = merge(a, election_2016_result, by.x = c("state", "county"), by.y = c("states", "county"))
+
+#get rid of hawaii for mapping purposes
+trump_df = trump_df[-(which(trump_df$state == "hawaii")), ]
+
+#to create a visually informative graph I will not use every single continous level of proportion to differentiate but instead cut it off at certain level and use factors. To decide the right factors let's explore the plots
+ggplot(data = trump_df, aes(white_prop)) + geom_density()
+summary(trump_df$white_prop)
+ggplot(data = trump_df, aes(prop_trump)) + geom_density()
+summary(trump_df$prop_trump)
+
+#let's create these factors, 2 levels for the white proportion one having less than 85% and one having more than 85% this will be used for the size of the circles for plot. The reasoning I chose 85 is because that's around the mean
+trump_df$white_prop_factor = rep(0, length(trump_df$white_prop))
+trump_df$white_prop_factor[trump_df$white_prop >= 0.85] = "> 85%"
+trump_df$white_prop_factor[trump_df$white_prop < 0.85] = "< 85%"
+trump_df$white_prop_factor = 
+  factor(trump_df$white_prop_factor, levels = c("< 85%", "> 85%"), labels = c("< 85%", "> 85%"))
+
+
+#next for the proportion of trump let's create 4 factor levels one for below 0.55, for between 0.55 and 0.75, and then finally above 0.75
+trump_df$prop_trump_factor = rep(0, length(trump_df$white_prop))
+trump_df$prop_trump_factor[trump_df$prop_trump < 0.48] = "< 48%"
+trump_df$prop_trump_factor[(trump_df$prop_trump >= 0.48) & (trump_df$prop_trump <= 0.55)] = "Between 48% & 55%"
+trump_df$prop_trump_factor[trump_df$prop_trump > 0.55] = "> 55%"
+trump_df$prop_trump_factor[(trump_df$prop_trump - trump_df$prop_clinton) < 0.03 & (trump_df$prop_trump - trump_df$prop_clinton) > 0] = "Slightly Republican"
+trump_df$prop_trump_factor[(trump_df$prop_clinton - trump_df$prop_trump) < 0.03 & (trump_df$prop_clinton - trump_df$prop_trump) > 0] = "Slightly Democrat"
+trump_df$prop_trump_factor = 
+  factor(trump_df$prop_trump_factor, levels = c("< 48%", "Between 48% & 55%", "> 55%", "Slightly Republican", "Slightly Democrat"), labels = c("< 48%", "Between 48% & 55%", "> 55%", "Slightly Republican", "Slightly Democrat"))
+
+county_map = ggplot() + geom_polygon(data=all_county, aes(x=long, y=lat, group = group), colour="white", fill="grey80")
+
+trump_white_prop_map = 
+  county_map + geom_jitter(data = trump_df, position=position_jitter(width=0.5, height=0.5), aes(x = county_long, y = county_lat, size = white_prop_factor, color = prop_trump_factor), alpha = 0.3) + 
+  scale_size_manual(name="Proportion of Whites", values = c(1,3)) + 
+  scale_colour_manual(name = "Proportion Who Voted Trump", values = c("#0571b0", "#fee090", "#ca0020", "#1a9850", "#542788")) +
+  labs(title = "White Proportion Who Voted For Trump", x = "Longtitude", y = "Latitude")
+```
+
+```{r, fig.width = 15, fig.height = 10}
+trump_white_prop_map
+```
+
+#Part 3: Analyzing the map
+As expected visually there is a story to tell. First of all, let's look at the two sides of the extreme. The small dots that are colored blue represents the counties with relatively small white proportion and relatively small percentage that voted for trump. These are the dots that represent the largely democratic states. And as expected, there are a lot more small blue dots than big blue dots, showing that out of all the strongly democratic counties who didn't vote more for Trump, tended to be the counties who had smaller white proportions. Next, the other end of the extreme says a similar but the opposite story. With the exception of small red dots in the mid-east south region of America, most red dots were big dots showing that counties who went strongly for Trump tended to be counties that had more white proportion. Also it's worthy to note how many more red dots there were than blue dots showing how Trump won a much larger number of counties than Hilary did.
+
+Now the middle, the yellow green and purple dots, is where the politically interesting data lies. Since, the swing states, or the states that were not in the extreme ends, were the ones that decided the election. First it's interesting to note that the green dots, which represent those swing counties that went just slightly Republican, tended to be mostly big dots. This shows that the white proportion might have had an association with deciding that small marging. Moreoever, many of these green dots are in very key states like Florida and Ohio. This is an extremely important place to analysis when seeing how the election got overturned. Also it's interesting to note that the yellow dots that represent just the counties inbetween the two extremes but not at a close margin, happen to be mostly big dots also. 
+
+There should also be a bit of attention to the way I chose the colors. The resource I used for color choosing was color brewer, and this made more visually informative colors available. Red and blue were obvious choices for Democrat and Republican. However, the middle yellow color was just from the middle range that color brewer website gave me. The slightly republican and slightly democrat colors I chose was a little tricky because initally I wanted to choose a light color of red and a light color of blue for slightly Republican and slightly Democrat respectively. However, because of the alpha transparency value, it was extremely hard to see the difference between a normal red color and a light red color, so I had to choose a completely different color for visual sake. These colors were again selected from color brewer. 
+
+To visually see this white proportion vs. trump proportion correlation not only on a map but also on a graph, I made the following scatterplot with a regression fitted line on it. 
+
+```{r}
+coef = coef(lm(prop_trump ~ white_prop, data = final_data_frame))
+ggplot() + geom_point(data = final_data_frame, aes(x = white_prop, y = prop_trump)) + labs(title = "Scatterplot of Whites who Voted for Trump", x = "Proportion of Whites", y = "Proportion who Voted for Trump") + geom_abline(intercept = coef[1], slope = coef[2], color = "blue")
+```
+
+And not surprisingly, there seems to be a heavy positive correlation between these two variables further accentuating the map's claims on the two extremes. It seems that it was very fortunate for Trump that America is heavily dominated (according to the statistics) by an average of around 85% whites for each county. This caused him, with his white supremacy campaign and anti-immigration laws, to make many Americans heavily favor him. Hilary, on the other hand, seems to have gotten more minority counties. This, however, was not enough for her to win as she needed to win these key counties that were very close between her and Trump. 
+
+#PART 3: DONE
+
+#PART 4: Building predictors
+#Classification tree for the 2016 election results using 2012 election results as training set.
+
+#Getting Data
+First of all, I selected the data frames for my training set and test set. The training set includes all the 40 variables chosen from the census data as well as the proportion wins for Obama and Romney. I create two individual data frame in order to predict the proportion of votes for two parties separately. Then I created my test sets using the same procedure with 2016 data for Trump and Clinton proportion votes. This test set will not be used until I use my trainset to build a model to get a good CP value to predict and then the test set will be used at the very last.
+
+```{r}
+#finding the total number of rows in the final_data_frame created in Part 1. All the test and training sets have the same number of rows as the final_data_frame
+nTrain = nrow(final_data_frame)
+
+#select 2012 results from the final_data_frame as training set, separating by parties.
+trainset = data.frame(sapply(final_data_frame[c(43, 45, 3:39)], as.numeric))
+rep_trainset = trainset[-2]
+dem_trainset = trainset[-1]
+#select 2016 results from the final_data_frame as test set, separating by parties.
+testset = data.frame(sapply(final_data_frame[c(51, 49, 3:39)], as.numeric))
+rep_testset = testset[-2]
+dem_testset = testset[-1]
+```
+
+# Cross-validation
+For cross-validation, I chose 30 different complexity parameters (cps) and pass into my 2-fold cross-validation to test for accuracy. The reason the 2-fold CV was used is because we had 3082 rows and it wasn't divisble by 3, so hence 2-fold is best. 
+
+```{r}
+#partition our data into random non-overlapping pieces, taking 2 folds since we have 3082 rows
+permuteIndices = sample(nTrain)
+folds = matrix(permuteIndices, ncol = 2)
+# Choose cps
+library(rpart)
+cps = c(seq(0.0001, 0.001, by = 0.0001), 
+       seq(0.001, 0.01, by = 0.001),
+       seq(0.01, 0.1, by = 0.01))
+```
+
+# Predict the Democratic proportion votes in 2016 first.
+By randomly splitting the training sets into two different equal-sized parts as train fold and test fold, I created a double nested for-loops to loop through different cp values and for each of them, I use ‘rpart’ and ‘predict’ to test for classification. Then, for each set of the predicted winning party by comparing the proportion of votes for dem and rep, I compare them to the actual win in 2012 from the original data to test for accuracy. 
+
+```{r}
+#creating two empty matrices to store the prediction results using the training set
+dem_preds = matrix(nrow = nTrain, ncol = length(cps))
+rep_preds = matrix(nrow = nTrain, ncol = length(cps))
+#using double for loop to loop over the folds and the complexity parameter values to get our predictions
+for (i in 1:2) {
+  trainFold = as.integer(folds[, -i])
+  testFold = folds[, i]
+  
+  for (j in 1:length(cps)) {
+    dem_tree = rpart(obama_prop_2012 ~ .,
+            data = dem_trainset[trainFold,],
+            control = rpart.control(cp = cps[j]))
+    dem_preds[testFold, j] = 
+      predict(dem_tree, 
+              newdata = dem_trainset[testFold,])
+    rep_tree = rpart(romney_prop ~ .,
+            data = rep_trainset[trainFold,],
+            control = rpart.control(cp = cps[j]))
+    rep_preds[testFold, j] = 
+      predict(rep_tree, 
+              newdata = rep_trainset[testFold,])
+  }
+}
+#creating a new col in trainset which incicates whether the dem party actually won or not in 2012
+actual_dem_prop_train = trainset$obama_prop_2012
+actual_rep_prop_train = trainset$romney_prop
+trainset$actual_dem_won = actual_dem_prop_train > actual_rep_prop_train
+#creating a matrix indicating whether the dem party won or not based on our predictions using the training set in 2012
+pred_dem_won = dem_preds > rep_preds
+#for each cp, calculate the proportion of correct predictions
+cvRates = apply(pred_dem_won, 2, function(oneSet) {
+  sum(oneSet == trainset$actual_dem_won) / length(oneSet) 
+})
+```
+
+#Graphing the cp value 
+By plotting complexity parameters against their classification rate using a line graph, I am able to see that it peaks around 0.002 - 0.008. So I decided to choose the cp that gives the maximum classification rate for my final prediction tree. 
+
+```{r}
+library(ggplot2)
+which.max(cvRates)
+cvRes = data.frame(cps, cvRates)
+ggplot(data = cvRes, aes(x = cps, y = cvRates)) +
+  geom_line() + 
+  labs(x = "Complexity Parameter", y = "Classification Rate")
+```
+
+#Getting the Classification Rate
+After I chose the cp and created my final precision trees, I passed in the 2016 election results aka my test sets to predict the proportion wins for both parties separately. Again, by comparing the proportions and determining the winning party, I compare them to the actual win in 2016. 
+
+```{r}
+#choosing the cp that give sthe highest classification rate
+cpChoice = cvRes$cps[which.max(cvRates)]
+#using the cp that give sthe highest classification rate to do the final prediction using the entire training set, then use the final prediction tree to predict the testset 
+dem_finalTree = rpart(obama_prop_2012~ .,
+                  data = dem_trainset, 
+                  control = rpart.control(cp = cpChoice))
+   
+dem_testPreds = predict(dem_finalTree, 
+              newdata = dem_testset)
+
+rep_finalTree = rpart(romney_prop~ .,
+                  data = rep_trainset, 
+                  control = rpart.control(cp = cpChoice))
+   
+rep_testPreds = predict(rep_finalTree, 
+              newdata = rep_testset)
+#creating a new col in testset which incicates whether the dem party actually won or not in 2016
+actual_dem_prop_test = testset$prop_clinton
+actual_rep_prop_test = testset$prop_trump
+testset$actual_dem_won = actual_dem_prop_test > actual_rep_prop_test
+#creating a matrix indicating whether the dem party won or not based on our predictions using the testset in 2016
+final_pred_dem_won = dem_testPreds > rep_testPreds
+#accessing the classfication rate of our predition on the testset
+classRate = sum(final_pred_dem_won == testset$ac) / nrow(testset)
+classRate
+#The classification rate is really high! That means our predictor is very accurate!
+```
+
+Surprising, the classification rate is quite high (>90%). The classification result can be shown more clearly using the classification_result data frame I created at the end which puts the predicted results side-by-side with the actual results to see to the difference. This was probably because of the variables that were chosen in the census data to predict the results. Most of the variables have high relevance and correlation with the election results. That is not too surprising given the fact the variables chosen in the census data were the following: employment, income, education level, US citizenship, language spoken, and demographic variables. These are all indications of whether one goes democrat or republican.
+
+This final code chunk just combines the whole result of the classification tree built predicator into one data frame, with the missclassification rates included in the data frame column.
+
+```{r}
+# combining our results into one table
+classification_result = data.frame(state = final_data_frame$state, county = final_data_frame$county, actual_dem_prop_2012 = final_data_frame$obama_prop_2012, actual_rep_prop_2012 = final_data_frame$romney_prop, predicted_dem_prop_2016 = unlist(dem_testPreds), actual_dem_prop_2016 = final_data_frame$prop_clinton, predicted_rep_prop_2016 = unlist(rep_testPreds), actual_dem_prop_2016 = final_data_frame$prop_trump, predicted_win_2016 = unlist(final_pred_dem_won), actual_win_2016 = testset$actual_dem_won)
+classification_result$misclassified = 
+  !(classification_result$actual_win_2016 == classification_result$predicted_win_2016)
+#changing TRUE or FALSE to which party won in each county
+classification_result$predicted_win_2016[classification_result$predicted_win_2016] = 'dem'
+classification_result$predicted_win_2016[classification_result$predicted_win_2016 == FALSE] = 'rep'
+classification_result$actual_win_2016[classification_result$actual_win_2016] = 'dem'
+classification_result$actual_win_2016[classification_result$actual_win_2016 == FALSE] = 'rep'
+#this classfication rate should match the one in the previous code chunk, to make sure the result is still correct.
+classificationRate = sum(classification_result$actual_win_2016 ==
+classification_result$predicted_win_2016) / nrow(classification_result)
+```
+
+#End of 2016 Classification Tree Predicator
+
+#Analysis of the 2016 Predicator
+There were a total of three exploratory maps created. The first one is the predicted 2016 election results from our census variables. This creates a map showing which counties go republican or democrat, and each of the dots are colored accordingly. Then, to compare it with the actual results, we created an actual results map showing which counties actually went democratic or republican. Lastly, we created a map showing which counties had a misclassification, these dots were colored orange. 
+
+```{r}
+require(maps)
+require(ggplot2)
+all_county = map_data("county")
+
+a = merge(merged_census_df, lat_long_df, by.x = c("state", "county"), by.y = c("state", "county"))
+a$county = tolower(gsub(" County", "", a$county))
+classification2016_df = merge(a, classification_result, by.x = c("state", "county"), by.y = c("state", "county"))
+
+county_map = ggplot() + geom_polygon(data=all_county, aes(x=long, y=lat, group = group), colour="white", fill="grey10")
+
+predicted2016_map = 
+  county_map + 
+  geom_jitter(data = classification2016_df, position=position_jitter(width=0.5, height=0.5), aes(x = county_long, y = county_lat, color = predicted_win_2016 )) + 
+  scale_colour_manual(name = "Predicted Party", values = c("blue", "red")) +
+  labs(title = "Predicted 2016 Election Results", x = "Longtitude", y = "Latitude")
+
+predicted2016_map
+
+actual2016_map =
+  county_map + 
+  geom_jitter(data = classification2016_df, position=position_jitter(width=0.5, height=0.5), aes(x = county_long, y = county_lat, color = actual_win_2016 )) + 
+  scale_colour_manual(name = "Actual Party", values = c("blue", "red")) + 
+  labs(title = "Actual 2016 Election Results", x = "Longtitude", y = "Latitude")
+
+actual2016_map
+
+#Getting the misclassified map
+classification2016_misc = classification2016_df[classification2016_df$misclassified,]
+mispredicted_map = county_map + 
+  geom_jitter(data = classification2016_misc, position=position_jitter(width=0.5, height=0.5), aes(x = county_long, y = county_lat, color = misclassified)) + 
+  scale_colour_manual(name = "Misclassified", values = "orange") + 
+  labs(title = "Misclassified 2016 Election Results", x = "Longtitude", y = "Latitude")
+mispredicted_map
+```
+
+Overall, the predictor we made worked very well. The predicted results of 2016 Election and the actual results are very similar. Both graphs show that the majority of the counties in our country voted for the republican party. The predictor was accurate in most the swing states, such as Florida, Pennsylvania, Michigan and Wisconsin, as these states all have majority red dots in the predicted graph. The predicator being accurate in these swing states are key because after all the prediactor should be predicating the ones that are unknown not the ones that we all know are going to go Democratic or Republican. The similarity between the predicted graph and the actual graph proves our high classification rate, which is above 90%.
+
+By looking at the map where only contains the points where counties were misclassified. We see that once again, we have most of our mistakes in states like Gerogia, Iowa, Wisconsin, New York, Minnesota, California, and Michigan. These are the places where our prediction might not have worked very well. Realistically speaking it would be extremely weird to see our predicator predict almost every county correctly because this year's election had huge overturns and unexpected results. Many counties and even states went Republican when they were actually Democratic states. This definitly plays a part in our missclasification rate. However, it's worthy to note that there are only a few handful of orange dots in an over 3000 county map. 
+#Analysis of 2016 Predictor Done
+
+#K-Nearest-Neighbors on the Change From 2012 to 2016
+
+```{r}
+# keep proportion data to train/test
+drop_names = c("kerryVote", "other_count", "bushVote", "romney_count", "trump_count", "clinton_count", "obama_count_2012")
+full_census_knn = final_data_frame[ , !(names(final_data_frame) %in% drop_names)]
+
+#we drop the vote proportions so that we can focus on the other features
+drop = c("mccain_prop_2008", "romney_prop", "obama_prop_2008", "obama_prop_2012", "prop_trump", "prop_clinton", "state", "county", "bush_prop", "ketty_prop")
+dimensions = names(full_census_knn)[!(names(full_census_knn) %in% drop)]
+```
+
+```{r}
+#this block creates the training/test data by classifying changes in party loyalty for 2004-2008, 2008-2012, 2012-2016
+# D->D, D->R, R->D, R->R
+census_knn = full_census_knn[,dimensions]
+win_2004 = full_census_knn$kerry_prop - full_census_knn$bush_prop
+win_2008 = full_census_knn$obama_prop_2008 - full_census_knn$mccain_prop_2008
+win_2012 = full_census_knn$obama_prop_2012 - full_census_knn$romney_prop
+win_2016 = full_census_knn$prop_clinton - full_census_knn$prop_trump
+#1 = DD, 2 = RD, 3 = DR, 4 = RR
+DD08 = as.numeric(win_2004 > 0 & win_2008 > 0)
+DR08 = as.numeric(win_2004 > 0 & win_2008 < 0)*2
+RD08 = as.numeric(win_2004 < 0 & win_2008 > 0)*3
+RR08 = as.numeric(win_2004 < 0 & win_2008 < 0)*4
+train_2008 = DD08+DR08+RD08+RR08
+
+DD12 = as.numeric(win_2008 > 0 & win_2012 > 0)
+DR12 = as.numeric(win_2008 > 0 & win_2012 < 0)*2
+RD12 = as.numeric(win_2008 < 0 & win_2012 > 0)*3
+RR12 = as.numeric(win_2008 < 0 & win_2012 < 0)*4
+train_2012 = DD12+DR12+RD12+RR12
+
+DD16 = as.numeric(win_2012 > 0 & win_2016 > 0)
+DR16 = as.numeric(win_2012 > 0 & win_2016 < 0)*2
+RD16 = as.numeric(win_2012 < 0 & win_2016 > 0)*3
+RR16 = as.numeric(win_2012 < 0 & win_2016 < 0)*4
+test_2016 = DD16+DR16+RD16+RR16
+
+```
+
+```{r}
+#testing the accuracies of knn for various values of k, using 2004-08 data, 2008-12 data, and both in one dataframe
+library(class)
+full_train = rbind(census_knn, census_knn)
+accuracy_08 = c(20)
+accuracy_12 = c(20)
+accuracy_08_12 = c(20)
+
+for (i in 1:20) {
+  accuracy_08_12[i] = sum(knn(full_train, census_knn, c(train_2008,train_2012), k = i) == test_2016)/length(test_2016)
+  accuracy_08[i] = sum(knn(census_knn, census_knn, train_2008, k = i) == test_2016)/length(test_2016)
+  accuracy_12[i] = sum(knn(census_knn, census_knn, train_2012, k = i) == test_2016)/length(test_2016)
+}
+accuracies = data.frame(k = 1:20, accuracy_08 = accuracy_08, accuracy_12 = accuracy_12, accuracy_08_12 = accuracy_08_12)
+accuracies
+```
+
+#More analysis
+```{r}
+#identify which counties switched from D-R from 2008-12
+length(which(train_2012 == 2))
+#identify how many of these counties stayed R in 2016
+sum(test_2016[which(train_2012 == 2)]==4)/length(which(train_2012 == 2)) #~95% stayed republican
+
+#identify which counties switched from R-D from 2008-12
+length(which(train_2012 == 3))
+#identify how many of these counties switched back to R
+sum(test_2016[which(train_2012 == 3)]==1) #100% switched back
+# table of count of counties in states that switched R-D and switched back
+ana3 = aggregate(county ~ state, full_census_knn[which(train_2012 == 3 & test_2016 == 2),c(1, 2)], length) 
+ana3 <- ana3[order(ana3$county, decreasing = TRUE),]
+ana3    #spread all over
+
+#identify which counties was consistently DD from 2008-12
+length(which(train_2012 == 1))
+#from these, which were D in 2016
+sum(test_2016[which(train_2012 == 1)]==2)/length(which(train_2012 == 1)) #~33% that were D in 2008-2012 flipped to R in 2016
+ana1 = aggregate(county ~ state, full_census_knn[which(train_2012 == 1 & test_2016 == 2),c(1, 2)], length) 
+ana1 <- ana1[order(ana1$county, decreasing = TRUE),]
+ana1    #iowa, wisconsin, minnesota had the most counties that switched to R in 2016 after DD
+
+#identify which counties was consistently RR from 2008-12
+length(which(train_2012 == 4))
+#from these, which were D in 2016
+sum(test_2016[which(train_2012 == 4)]==4) #most stayed republican
+```
+
+#Analysis of change in voter party
+The most accurate predictor overall of a county's change in party loyalty from 2012 to 2016 was the county's change in party loyalty from 2008 to 2012.
+* All of the counties that switched from voting Republican -> Democrat from 2008-12 switched back to voting Republican in the 2016 election. There were only 10 counties for which this was the case, and they were spread across 8 states.
+* ~5% of the counties that switched from voting Democrat -> Republican from 2008-12 switched back to voting Democrat
+* ~33% of the counties that were consistently Democrat in 2008 and 2012 elections voted for the Republican candidate in the 2016 election. Many of these counties were located in midwestern states (the states with the most counties for which this was the case were Iowa, Winsonsin, and Minnesota)
+* Meanwhile, effectively 0% of the counties that were consistently Republican in 2008 and 2012 elections voted for the Democratic candidate in 2016
+This shows an overall trend toward voting Republican in 2016. Republican party loyalty in the past 3 elections have been very strong, while there were many counties that had voted Democrat in the last two elections that voted Republican for the 2016 election.
+
+#End of Part 4
+
+#Discussion
+We learned through this project many machine learning tools and honestly a lot of geo-political information about the United States. It was absolutely necessary to know a bit of borderline cases when doing merges such as how some counties were written in different ways (like Brooklyn vs Kings). Moreover, the data merging part really taught us how much time and tedious work data scraping is. The reason is because in the world sources come from various places and standardization is rare. Obviously the project taught us some of the impacts and driving force of the 2016 election such as white proportions really affecting the vote. 
+
+We also learned that winning candidate can win the election with less than winning 1/3 of counties. The number of counties are disproportionally scattered across the US. Stated in the middle area of the US have lots of counties with very small populations. Also, by predicting the proportion of winning at county level, I learned how to apply the concepts of cross-validation as well as classification trees using complex real-world data. Through the process of data cleaning and merging, I realized that as a data scientist or a statistician, how important it is to have a well-formed, clean, easily workable data and how we spent almost half of our time simply putting data together with the minimum loss of information.
+
+One of the more illuminating aspects of this project was that while the vast majority of the counties that switched from voting Democrat to Republican from 2008-12 continued to vote Republican in 2016, none of the counties that switched from Republican to Democrat from 2008-12 continued to vote Democrat. It also seemed that counties that had historically been Republican had more party loyalty than those counties that were more Democratic. While effectively all the counties that voted Republican in 2008 and 2012 continued to do so in 2016, about 33% of the counties that voted Democratic in 2008 and 2012 switched to voting for the Republican candidate in 2016. In all, the process of working from the ground-up on this project exposed a lot of the issues that arise from working with a data set that wasn’t clean, and the many different ways in which a single data set could be interpreted.
+
+The last thing to mention in our discussion is how powerful visualization is. No amount of code can speak a similar story that some of our maps did. The visualization, espicially the specific ones done in part 3, really showed a powerful message if done properly and with good care. We realized how much a plot can show and really how important it is to pay attention to these small details like alpha values for transperency to tell a better story. After all, there's a huge market demand for people with good skills in producing good visualizing for a reason.
+
+#References
+Professor Nolan on getting the Virginia counties from Wikipedia.
+
+Virginia counties wikipedia link: "https://en.wikipedia.org/wiki/United_States_presidential_election_in_Virginia,_2004"
+
+Sources extracted from:
+2016 election data: 
+"https://github.com/tonmcg/County_Level_Election_Results_12-
+16/blob/master/2016_US_County_Level_Presidential_Results.csv"
+2012 election data:
+"http://www.politico.com/2012-election/map/#/President/2012/"
+2008 election data:
+"https://www.theguardian.com/news/datablog/2009/mar/02/us-elections-2008"
+2004 election data:
+"http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2004.txt"
+2010 census data:
+"http://factfinder2.census.gov/faces/nav/jsf/pages/searchresults.xhtml?refresh=t"
+latitude and longtitude data:
+"http://www.stat.berkeley.edu/users/nolan/data/voteProject/counties.gml"
+
+All package used are citied within the library, these include: readr, XML, xlsx, RCurl, Rpart, class
+
+http://colorbrewer2.org/
+
+
+
+

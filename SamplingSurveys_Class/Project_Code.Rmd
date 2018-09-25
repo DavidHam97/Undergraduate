@@ -1,0 +1,257 @@
+#Appendix - R Code
+
+####Extract data/Cleaning data
+```{r, eval = FALSE}
+#Get household data
+load(file = "~/Downloads/ICPSR_36828/DS0002/36828-0002-Data.rda")
+household_ncvs = da36828.0002
+#stratums are in V2117
+in_df = household_ncvs[, c("IDHH", "V2117")]
+in_df = in_df[order(in_df$IDHH), ]
+in_df = in_df[!duplicated(in_df), ]
+
+#Get person data
+load(file = "~/Downloads/ICPSR_36828/DS0003/36828-0003-Data.rda")
+person_ncvs = da36828.0003
+clean_df = person_ncvs[ , c("IDHH" , "V3002","V3014", "V3020", "V3018", "V3023A", "V3081", "V3046", "V3034", "V3036", "V3042", "WGTPERCY")]
+colnames(clean_df) = c("IDHH", "cluster_id","age","education", "gender", "race", "crime_reports", "unwanted_sex", "general_theft", "broken_in", "attacked_weapon", "weights")
+clean_df = merge(x = clean_df, y = in_df, by = c("IDHH"))
+```
+
+####Item-Nonresponse - Imputations
+```{r, eval = FALSE}
+#Trying to check how many nonresponse is unit and item
+N = nrow(clean_df)
+num_NA = function(x){
+  sum(is.na(x))
+}
+
+for (i in 7:10) {
+  clean_df[, i][c(which(clean_df[, i] == "(8) Residue"))] = NA
+}
+
+table(clean_df$unwanted_sex)
+table(clean_df$general_theft)
+
+#Taking only the rows without the unit nonresponses to do imputations
+index = which(is.na(clean_df$unwanted_sex) & is.na(clean_df$general_theft) & is.na(clean_df$broken_in) & is.na(clean_df$attacked_weapon))
+
+clean_df = subset(clean_df, select = -c(broken_in))
+clean_df = clean_df[-index, ]
+
+#imputing with mice package
+library("mice")
+interested_df_1 = clean_df[, c(2, 3, 4, 5, 8)]
+head(interested_df_1)
+imputed_df_1 = mice(interested_df_1)
+
+interested_df_2 = clean_df[, c(2, 3, 4, 5, 9)]
+head(interested_df_2)
+imputed_df_2 = mice(interested_df_2)
+
+interested_df_3 = clean_df[, c(2, 3, 4, 5, 10)]
+head(interested_df_3)
+imputed_df_3 = mice(interested_df_3)
+
+a = complete(imputed_df_1); b = complete(imputed_df_2); c = complete(imputed_df_3)
+
+a$general_theft = b$general_theft
+a$attacked_weapon = clean_df$attacked_weapon
+a$weights = clean_df$weights
+a$pseudo_stratum = clean_df$V2117
+a$cluster_id = clean_df$cluster_id
+a$race = clean_df$race; View(a)
+a$crime_reports = clean_df$crime_reports
+clean_df = a
+```
+
+####Cleaning up variables
+```{r, eval = FALSE}
+#Clean up education data into factors we care about
+edu_digits = substr(as.character(clean_df$education), 2, 3)
+edu_digits = as.numeric(edu_digits)
+edu_digits[edu_digits <= 12 | edu_digits == 28 | edu_digits == 27] = "High School or Lower"
+edu_digits[(edu_digits > 12 & edu_digits <= 27) | edu_digits == 40 | edu_digits == 41 | edu_digits == 42] = "College"
+edu_digits[edu_digits == 43 | edu_digits == 44 | edu_digits == 45] = "Higher Education"
+clean_df$education = factor(edu_digits)
+clean_df$education[clean_df$education == 98] = NA
+clean_df$education = factor(clean_df$education)
+
+clean_df$gender = factor(clean_df$gender)
+
+#Make age into factor
+clean_df$age[clean_df$age < 11] = 1
+clean_df$age[clean_df$age <20 & clean_df$age >= 11] = 2
+clean_df$age[clean_df$age <30 & clean_df$age >= 20] = 3
+clean_df$age[clean_df$age <40 & clean_df$age >= 30] = 4
+clean_df$age[clean_df$age <50 & clean_df$age >= 40] = 5
+clean_df$age[clean_df$age <60 & clean_df$age >= 50] = 6
+clean_df$age[clean_df$age <70 & clean_df$age >= 60] = 7
+clean_df$age[clean_df$age <80 & clean_df$age >= 70] = 8
+clean_df$age[clean_df$age <= 90 & clean_df$age >= 80] = 9
+clean_df$age = factor(clean_df$age, labels = c("10-20", "20-30", "30-40", "40-50", "50-60", "60-70", "70-80", "80-90"))
+
+
+#Clean up race variable into factors we care about
+race_digits = substr(as.character(clean_df$race), 2, 3)
+race_digits = as.numeric(race_digits)
+#1 white 2 black 3 native american 4 asian 5 Other
+race_digits[race_digits == 7 | race_digits == 9 | race_digits == 1] = "White"
+race_digits[race_digits == 6 | race_digits == 10 | race_digits == 11 | race_digits == 12 | race_digits == 2] = "Black"
+race_digits[race_digits == 5 | race_digits == 13 | race_digits == 3] = "Native American"
+race_digits[race_digits == 8 | race_digits == 14 | race_digits == 4] = "Asian"
+race_digits[race_digits == 15 | race_digits == 16 | race_digits == 17 | race_digits == 18 | race_digits == 19 | race_digits == 20] = "Other"
+clean_df$race = factor(race_digits)
+
+#Clean up crime reports only want basically yes or no 0 or 1
+clean_df$crime_reports[clean_df$crime_reports > 0] = 1
+
+#Make the responses more easy to interpret
+
+clean_df$unwanted_sex = as.numeric(clean_df$unwanted_sex)
+clean_df$unwanted_sex[clean_df$unwanted_sex == 2] = 0
+clean_df$unwanted_sex[clean_df$unwanted_sex ==3] = NA
+
+clean_df$general_theft = as.numeric(clean_df$general_theft)
+clean_df$general_theft[clean_df$general_theft == 2] = 0
+clean_df$general_theft[clean_df$general_theft ==3] = NA
+
+clean_df$attacked_weapon = as.numeric(clean_df$attacked_weapon)
+clean_df$attacked_weapon[clean_df$attacked_weapon == 2] = 0
+clean_df$attacked_weapon[clean_df$attacked_weapon ==3] = NA
+clean_df$any_crime = clean_df$crime_reports
+save(clean_df, file = "cleanedup_df")
+```
+
+####Survey design
+```{r, eval = FALSE}
+library("survey")
+survey = svydesign(ids =~ cluster_id, strata =~ pseudo_stratum, weights =~ weights, data = clean_df, nest = TRUE)
+```
+
+####EDA does our data look alright?
+```{r, eval = FALSE}
+####Figure 3.1####
+summary(person_ncvs$WGTPERCY)
+histogram(person_ncvs$WGTPERCY, breaks = 50, xlab = "Adjusted Weights", main = "Distribution of Weights")
+
+#boxplots about weight
+par(mfrow = c(1, 1))
+
+####Figure 3.2####
+boxplot(weights~race, data = clean_df, xlab = "Race", ylab = "Weights", main = "Boxplot of Weights on Race")
+
+#EDA 
+
+####Figure 6.1####
+par(mfrow = c(2,1))
+a = svytable(~race, survey)/sum(svytable(~race, survey))
+barplot(a, xlab = "Race", ylab = "Percentage in Sample", main = "Distribution of Sampled Ethnicities")
+
+b = svytable(~age, survey)/sum(svytable(~age, survey))
+barplot(b, xlab = "Age", ylab = "Percentage in Sample", main = "Distribution of Sampled Ages")
+
+####Table 6.1####
+#Creating tables comparing theoretical values
+t_1 = as.table(as.matrix(data.frame(sample_estimate = as.numeric(a), theoretical = c(0.056, 0.123, 0.02, NA, 0.7735)))); row.names(t_1) = row.names = c("Asian", "Blacks", "Native Americans", "Others", "Whites"); t_1
+svytable(~race, survey)
+confint(svytable(~race, survey))
+
+as.table(as.matrix(data.frame(sample_estimate = as.numeric(b))))
+```
+
+####Analysis of general crime rates
+```{r, eval = FALSE}
+#First question What is the general crime rate in the United States
+general_a = svymean(~any_crime, survey, na.rm = TRUE)
+
+general_b = svymean(~general_theft, survey, na.rm = TRUE)
+
+general_c = svymean(~attacked_weapon, survey, na.rm = TRUE)
+
+general_d = svymean(~unwanted_sex, survey, na.rm = TRUE)
+
+####Table 7.1####
+a_1 = as.table(as.matrix(data.frame(estimated_rate = c(general_a[1], general_b[1], general_c[1], general_d[1]), lower_CI = c(confint(general_a)[1], confint(general_b)[1], confint(general_c)[1], confint(general_d)[1]), upper_CI = c(confint(general_a)[2], confint(general_b)[2], confint(general_c)[2], confint(general_d)[2])))); a_1
+
+####Figure 7.1####
+par(mfrow = c(1,1))
+estimated_rate = c(general_a[1], general_b[1], general_c[1], general_d[1])
+barplot(estimated_rate, xlab = "Crime", ylab = "Rate", main = "Break down of Crimes")
+```
+
+
+####Age Analysis
+```{r, eval = FALSE}
+age_a = svyby(~any_crime, ~age, survey, svymean)
+
+age_b = svyby(~general_theft, ~age, survey, svymean, na.rm = TRUE)
+
+age_c = svyby(~attacked_weapon, ~age, survey, svymean, na.rm = TRUE)
+
+age_d = svyby(~unwanted_sex, ~age, survey, svymean, na.rm = TRUE)
+
+age_table = as.table(as.matrix(data.frame(any_crime = getProp(age_a[2]), general_theft = getProp(age_b[2]), attacked_weapon = getProp(age_c[2]), unwanted_sex = getProp(age_d[2]))))
+
+####Figure 7.2####
+barplot(age_table, legend.text = TRUE, xlab = "Different Crimes", ylab = "Proportion of Crimes", main = "Distribution of Crimes for each Age Bracket", col = 1:8)
+```
+
+####Education analysis
+```{r, eval = FALSE}
+education_a = svyby(~any_crime, ~education, survey, svymean)
+
+education_b = svyby(~general_theft, ~education, survey, svymean, na.rm = TRUE)
+
+education_c = svyby(~attacked_weapon, ~education, survey, svymean, na.rm = TRUE)
+
+education_d = svyby(~unwanted_sex, ~education, survey, svymean, na.rm = TRUE)
+#Make into proportion
+getProp = function(vec) {
+  vec/sum(vec)
+}
+
+####Table 7.3####
+education_table = as.table(as.matrix(data.frame(any_crime = getProp(education_a[2]), general_theft = getProp(education_b[2]), attacked_weapon = getProp(education_c[2]), unwanted_sex = getProp(education_d[2]))))
+education_table
+```
+
+####Race analysis
+```{r, eval = FALSE}
+race_a = svyby(~any_crime, ~race, survey, svymean)
+
+race_b = svyby(~general_theft, ~race, survey, svymean, na.rm = TRUE)
+
+race_c = svyby(~attacked_weapon, ~race, survey, svymean, na.rm = TRUE)
+
+race_d = svyby(~unwanted_sex, ~race, survey, svymean, na.rm = TRUE)
+
+race_table = as.table(as.matrix(data.frame(any_crime = getProp(race_a[2]), general_theft = getProp(race_b[2]), attacked_weapon = getProp(race_c[2]), unwanted_sex = getProp(race_d[2]))))
+
+####Figure 7.3####
+barplot(race_table, legend.text = TRUE, col = c("yellow", "black", "red", "blue", "grey"), xlab = "Different Crimes", ylab = "Proportion of Crimes", main = "Distribution of Crimes for each Race")
+```
+
+####Gender analysis
+```{r, eval = FALSE}
+gender_a = svyby(~any_crime, ~gender, survey, svymean)
+
+gender_b = svyby(~general_theft, ~gender, survey, svymean, na.rm = TRUE)
+
+gender_c = svyby(~attacked_weapon, ~gender, survey, svymean, na.rm = TRUE)
+
+gender_d = svyby(~unwanted_sex, ~gender, survey, svymean, na.rm = TRUE)
+
+gender_table = as.table(as.matrix(data.frame(any_crime = getProp(gender_a[2]), general_theft = getProp(gender_b[2]), attacked_weapon = getProp(gender_c[2]), unwanted_sex = getProp(gender_d[2]))))
+
+####Figure 7.4####
+barplot(gender_table, legend.text = TRUE, col = c("blue", "pink"), xlab = "Different Crimes", ylab = "Proportion of Crimes", main = "Distribution of Crimes for each Gender")
+
+#Chi-square tests
+####Tables 7.4 and Table 7.5####
+svytable(~any_crime + gender, survey)
+svychisq(~any_crime + gender, survey)
+
+svytable(~unwanted_sex + gender, survey)
+svychisq(~unwanted_sex + gender, survey)
+```

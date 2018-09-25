@@ -1,0 +1,410 @@
+---
+title: "151A Project - Dae Woong Ham"
+output:
+  html_document:
+    fig_width: 6
+    fig_height: 4
+---
+
+<style type="text/css">
+
+body, td {
+   font-size: 14px;
+}
+code.r{
+  font-size: 7px;
+}
+pre {
+  font-size: 10px
+}
+</style>
+
+####Introduction
+
+  In the first and main part of my project I will gear my whole analysis and decisions to the following purpose:
+    
+  To propose not only a good predicting model but also a good explaining model for ONLY wildfires that seems to be significantly bigger than 0 (thus filtering out all the response variables >0)
+    
+  This goal makes sense in the perspective of fireman. They don't necessarily care about fires that are weaker and over preparing is much better than underpreparing, thus this conservative estimate realistically and statistically makes sense. Moreover, statistically this will just make the analysis much easier because I can ignore all those clustered up 0 points. 
+  
+  I will organize this analysis in the following way. First I will do some very simple EDA on the response variable itself and see how it’s distributed. Then I will really try to look at the possible explanatory variables (the other 12 variables) that could be helpful. After I explore my explanatory variable I will finally start proposing some models based on methodologies learned in class. I will then diagnose my model and see how it is performing. Lastly, there will be an evaluation of this model after all procedure and fixing is done to see how it generally does in a linear regression setting.
+
+  In the last part of my report, I will focus on my own question to create another model for the firemen. The above analysis seems great to the firemans to analyze only fires they should care about. However, it still begs the question of what about the fires they shouldn't care about? Ignoring all the 0 points takes away a lot of data. Wouldn't they want to predict that also? Therefore, that motivated this question of "trying to predict whether or not there will be a fire they care about". Therefore for this question I will shift my attention to changing the area into a dummy variable and predicting that with generalized linear model, with the main question being what covariates influences this dummy variable? The analysis and organization will almost mirror the above analysis. 
+```{r, echo = FALSE}
+#Reading the data in
+data = read.csv("~/Downloads/forestfires.csv")
+```
+
+####Description of Data
+  The very first EDA I will do is on the response variable itself. Let's look at the following results and plots.
+```{r, echo = FALSE}
+#EDA on the response variable
+par(mfrow = c(1,1))
+cat("summary statistics of area and five biggest fires"); 
+summary(data$area); sort(data$area, decreasing = TRUE)[1:5]
+plot(density(data$area), main = "Density Plot of Area (Nontransformed)")
+```
+
+It seems that some of these wildfires were absolutely massive such as the one with the 1090 and 746 data points. For the purpose of this analysis I will not consider these necessary to predict simply due to it being unlikely. Moreover, I will do a shifted (1 + x) log transformation on this variable due to the very high skew.
+
+```{r, echo = FALSE}
+#Getting rid of the two massive wildfire
+index = which(data$area > 746)
+data = data[-c(index), ]
+data$area = log(data$area +1)
+```
+Now as explained above because the response variable as shown in the plot seems to have a lot of values at 0 and this is not so important to the goal that I want to achieve (it will only obscure and make the linear model worse), I will perform the remainder of my analysis only on the response variables that matter, which is area > 0.
+
+```{r, echo = FALSE}
+#Going to create a new data frame without the zero variable
+new_data_without_zero = data[data$area > 0, ]
+new_data_without_zero = new_data_without_zero[, -c(14)]
+```
+
+  I will now do some EDA on the continuous variables on just the subset data with area values greater than 1 to see what sort of model I should expect for this part.
+```{r, echo = FALSE}
+#EDA on continuous variables
+cat("correlation matrix of all continous variables")
+subset_data = new_data_without_zero[, -c(1,2,3,4)]
+cor(subset_data)
+pairs(subset_data)
+```
+
+  Despite sub-setting the data for only area > 0, transforming, and removing big wildfires, this plot still looks very unpromising. Most of the covariates are not even close to a strong linear relationship and this is reflected in the correlation matrix in which the highest correlated variable is wind and temperature only at values of 0.047. I should expect the linear model to prove very weak.
+
+  Another thing that is apparent from the above plot is that the variables rain and FFMC seem extremely hard to visualize because rain has so little values greater than 0 and FFMC seems to have an outlier making it hard to visualize. I will remove FFMC's outlier and change rain into a categorical variable to basically 1 and 0 and not include it in my covariate EDA. Finally, because FFMC seems extremely negative skewed I will also transform this data with a square function. The following revised plot shows all these changes to the covariates for better visualization.
+ 
+```{r, echo = FALSE}
+#Take out the outliers clearly visible in ISI
+index = which(data$ISI == sort(data$ISI)[length(data$ISI)]) #removing maximum
+index_2 = which(data$FFMC == sort(data$FFMC)[1]) #removing minimum
+data = data[-c(index, index_2), ]
+#Change rain into dummy
+data$rain[data$rain >0 ] = 1
+data$rain = factor(data$rain)
+#transforming negative skewed FFMC
+data$FFMC = data$FFMC^2
+
+
+#Going to create a new data frame without the zero variable
+new_data_without_zero = data[data$area > 0, ]
+new_data_without_zero = new_data_without_zero[, -c(14)]
+
+#Recreate the final visualization
+subset_data = new_data_without_zero[, -c(1,2,3,4, 12)]
+pairs(subset_data)
+```
+ 
+  Despite doing all these small touches it still does not solve the non-linear problem. However, visually speaking it is definitely an improvement, and I can discern that area might have some potential to be explained by wind, RH, and temperature. Lastly, note that there is collinearity in some of continuous covariates also. Because of this EDA, I will try to do some PCA if I have some models with many covariates.
+  
+####Analysis
+
+####Finding Model Candidates
+
+  Because I did not do any EDA on the categorical variables, now is the appropriate time to see if these categorical variables do make an impact on the response variable area. There are many ways to tackle this, but one of the most direct and logical ways is to just compare a full model with all the variables and a sub model with just the continuous variables. We will then see the summary statistics.
+```{r, echo = FALSE}
+#Comparing models of full model with only continuous variable
+cat("Sumamry of Full Model with Everything")
+model_full = lm(area ~ ., data = new_data_without_zero)
+summary(model_full)
+
+model_continous_subset = lm(area ~ ., data = subset_data)
+cat("Summary of Model with Only Continuous Variables")
+summary(model_continous_subset)
+```
+
+From this information, it becomes blatantly obvious that the only continuous variable model lacks precision by many folds. It is also important to note that the full model despite all these transformations only could achieve an R^2 value of 0.121. This is not the best news for a linear modelling class because theory tells us that R^2 never decreases with more variables. In other words, this is the maximum R^2 we can get because my new proposed models will only drop variables not add them. This is a huge indication that perhaps the linear model is not a good fit.
+
+  Now it is also apparent that the full model seems to lack many statistical significances for many parameters as they all have high standard errors. In order to improve accuracy for not only prediction but for description purposes, I will now propose better candidate models. 
+
+My main way of choosing candidate models will be using the step() function. The step function is quite ideal because I can propose many candidate models by approaching the problem from different ways. First I can look at it in terms of AIC which is more prediction power based and not penalizing the amount of variables. I can also look at BIC which is less predictive power but more explanation based because it penalizes it for more variables. Lastly I could choose three potentially different candidate models by stepping forward, backwards or both ways for each information criteria, thus a total of potentially six candidate models. These will be my candidate models
+```{r, echo = FALSE, results = "hide"}
+model_full = lm(area ~., data = new_data_without_zero)
+
+#Step method to choose model
+n = nrow(new_data_without_zero)
+backwards_AIC = step(model_full, direction = "backward") 
+forward_AIC = step(model_full, direction = "forward")
+both_AIC = step(model_full, direction = "both") 
+
+backwards_BIC = step(model_full, direction = "backward", k = log(n)) 
+forward_BIC = step(model_full, direction = "forward", k = log(n)) 
+both_BIC = step(model_full, direction = "both", k = log(n)) 
+```
+
+```{r, echo = FALSE, results = "hide"}
+#Chosen model using step model AIC
+cat("Model Selected Using backwards AIC")
+backwards_AIC #month, DMC, DC
+cat("Model Selected Using forward AIC")
+forward_AIC #X, Y, month, day, FFMC, DMC, DC, ISI, temp, RH, wind, rain full model
+cat("Model Selected Using both direction AIC")
+both_AIC #month, DMC, DC
+
+#Chosen models using step model BIC
+cat("Model Selected Using backwards BIC")
+backwards_BIC #Just intercept
+cat("Model Selected Using forward BIC")
+forward_BIC #X, Y, Month, day, FFMC, DMC, DC, ISI, temp, RH, wind, rain full model
+cat("Model Selected Using both direction BIC")
+both_BIC #intercept
+```
+  
+  So here are the following results the six different step method gave me: 
+  
+  1) Full model (forward AIC/BIC)
+  
+  2) month + DMC + DC from (backwards and both AIC)
+  
+  3) intercept, i.e. no variables (backwards and both BIC)
+  
+  These results are very interesting because potentially there could be six different models but both the forward AIC and BIC methods gave me the only three models, one of which was the intercept model. Although this is consistent with the belief that the linear model might not be so powerful, it is still not so useful for my setting to give a powerful predictive model to the fireman who is using other data like temperature to predict. Therefore there is really only two candidate models. I will also introduce the following two models for possible consideration due to high correlation to area and to continue to test if the categorical variables are useful or not:
+  
+  1) Full model
+
+  2) Continuous variables only model
+
+  3) month + DMC + DC 
+
+  4) month + DMC + DC + temp + wind
+  
+  
+Now I will begin my model selection process by using two measures: AIC/BIC and cross validation.
+  
+####Model Comparison - Part 1
+####AIC/BIC comparisons
+```{r, echo = FALSE}
+#Build fourth model
+added_tempwind_model = lm(area ~ month + DMC + DC + temp + wind, data = new_data_without_zero)
+
+#AIC BIC to compare models
+aic_values = AIC(backwards_AIC, forward_AIC,model_continous_subset, added_tempwind_model)
+bic_values = BIC(backwards_AIC, forward_AIC,model_continous_subset, added_tempwind_model)
+#Table to show my AIC/BIC values of all 7 models 
+aic_bic = as.matrix(cbind(aic_values, bic_values)[, -3]); rownames(aic_bic) = c("Month + DMC + DC", "Full Model", "Continuous Subset Model", "Added temp and wind model"); aic_bic
+```
+
+Here it seems clear that our two winners are the models with month DMC and DC and the model with all those three but with added temperature and wind. But I will also run all four of these models through cross validation. 
+
+The methodology I will be using is a four-fold cross validation. My cleaned up data with only >0 values of response variables has 268 rows so I can train on 201 data points and test on 67 data points every time. I will report the RMSE in a table and compare.
+
+####Cross Validation
+```{r, echo = FALSE}
+#CV for full model
+cv_error_full <- function(data = new_data_without_zero, l = 67) {
+  sum_error = vector(length = 4)
+  for (i in 1:4) {
+    start = 1 + l*(i-1); final = start + (l-1)
+    test_data = data[start:final, ]; train_data = data[-(start:final), ]
+    fit = lm(area ~ ., data = new_data_without_zero)
+    predic = predict(fit, test_data)
+    actual = test_data$area
+    sum_error[i] = sum((predic - actual)^2)
+  }
+  return(mean(sum_error))
+}
+
+#CV for continuous subset model
+cv_error_continuous <- function(data = subset_data, l = 67) {
+  sum_error = vector(length = 4)
+  for (i in 1:4) {
+    start = 1 + l*(i-1); final = start + (l-1)
+    test_data = data[start:final, ]; train_data = data[-(start:final), ]
+    fit = lm(area ~ ., data = train_data)
+    predic = predict(fit, test_data)
+    actual = test_data$area
+    sum_error[i] = sum((predic - actual)^2)
+  }
+  return(mean(sum_error))
+}
+
+#CV for just month DMC DC
+cv_error_monthDMCDC <- function(data = new_data_without_zero, l = 67) {
+  sum_error = vector(length = 4)
+  for (i in 1:4) {
+    start = 1 + l*(i-1); final = start + (l-1)
+    test_data = data[start:final, ]; train_data = data[-(start:final), ]
+    fit = lm(area ~ DMC + DC, data = train_data)
+    predic = predict(fit, test_data)
+    actual = test_data$area
+    sum_error[i] = sum((predic - actual)^2)
+  }
+  return(mean(sum_error))
+}
+
+#CV for added temperature and wind
+cv_error_addedtempwind <- function(data = new_data_without_zero, l = 67) {
+  sum_error = vector(length = 4)
+  for (i in 1:4) {
+    start = 1 + l*(i-1); final = start + (l-1)
+    test_data = data[start:final, ]; train_data = data[-(start:final), ]
+    fit = lm(area ~ DMC + DC + temp + wind, data = train_data)
+    predic = predict(fit, test_data)
+    actual = test_data$area
+    sum_error[i] = sum((predic - actual)^2)
+  }
+  return(mean(sum_error))
+}
+
+a = cv_error_full(); b = cv_error_continuous(); c = cv_error_monthDMCDC(); d = cv_error_addedtempwind()
+t_cv = as.matrix(c(a, b, c, d), ncol = 1);  rownames(t_cv) = c("Full Model", "Just Continuous Variables", "MonthDMCDC", "Added temp wind"); colnames(t_cv) = "CV Error"; t_cv
+```
+Note when doing the cross validation because often times the month variable would not contain all the months in the training data to actually build the model properly I had to omit it from all models hoping it would not make a significant impact. However, as expected it seems like the CV error is significantly reduced when having the full model. However, in terms of explanation it might not be the best as indicated in our information criteria above because the full model is always problematic due to the multicollinearity problem. So I will see if PCA can actually help.
+
+####Analysis through PCA: Will it make the model better?
+The motivation for doing PCA is because it seems from the cross validation result the full model does the best but there is going to be some bad multicollinearity problem. Theoretically speaking doing PCA to the categorical variables is not so clear and moreover doing PCA for the categorical variables seem unnecessary because I suspect close to no multicollinearity in those variables. Thus I will only do it to the continuous variable.
+```{r, echo = FALSE}
+#PCA analysis
+X = subset_data
+mu = colMeans(X)
+
+pcas = prcomp(X)
+summary(pcas) #just take first three pcs
+```
+
+It seems very obvious that by the fourth PCA, the remainder is not so important therefore I will take the first four PCA which essentially contains all the information about my continuous variable and concatenate it with the remaining categorical variables to redo a linear model with the PCAs and categorical variables and compare summary statistics. Here is the following result
+```{r, echo = FALSE}
+#Comparing PCA model and my candidate model
+selected_pcas = pcas$x[,c(1,2,3, 4)]
+
+improved_data = new_data_without_zero[, c("X", "Y","month", "area", "rain", "day")]
+improved_data = cbind(improved_data, selected_pcas)
+
+model_pca = lm(area ~ ., improved_data)
+cat("PCA Model")
+summary(model_pca); 
+cat("Original Full Model")
+summary(forward_AIC)
+```
+
+The PCA definitely helped increased the adjusted R^2 value without much loss of original R^2 value and most importantly made the omnibus test p-value 0.09 compared to 0.1398, giving much more robust coefficient estimates. This is expected due to the power of PCA. Therefore in conclusion I will propose two models to the fireman: 
+
+1) For Prediction: The Full Model with the PCAs (of course if the firemen want to predict they would have to change their explanatory variable to PCAs)
+
+2) For Explanation: The Model with just month + DMC + DC
+
+
+####Last diagnostics with my explanation model
+  As explained above there is high evidence to believe linear regression is not a good idea. I will explore added-variable plots on my explanation model - specifically only the two variables, and general diagnostics plots.
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+#Added variable plots
+library("car")
+par(mfrow = c(1,2))
+avPlot(backwards_AIC, variable = "DMC"); avPlot(backwards_AIC, variable = "DC"); 
+
+#Regressional diagonistics plots from plot()
+par(mfrow = c(2,2))
+plot(backwards_AIC)
+```
+
+The first comment is that the added variable plots show quite unconvincing linear relationships, and these were the two best variables picked to model linearly area from AIC/BIC criterias! It is indicative and only expected from all the analysis above that the linear model would not be so great.
+
+Surprisingly the normal error assumption and constant variance plots do not look as bad as expected. However, it is important to note that I am only diagnosing the explanation model, which has much less parameters. However, it is still worrying that the cook's distance really does not look very promising, as there seems to be a decent amount of points that are influential and the normal QQ plot is itself not convincing enough. This is exactly what I expected and it is reflective that perhaps a linear model might not be best despite all these transformations. But this is the best I can do. 
+
+####End of first part of Analysis for continuous variable response area####
+I will now begin to analysis my own question which is taking one step further to give the firemen another source of model they might be interested in - whether or not they should anticipate a big fire or not. This analysis requires making the area a dummy variable, in my case I made a decision to make anything bigger than 1 hectares count as something the fireman would care about.
+
+The main purpose of this part of the analysis will be to show what variables will best explain this dummy variable. I will not go as into detail in my analysis as above. First, I will immediately go to modelling with a similar way I used above - the step() function to give me six potential candidate models.
+```{r, echo = FALSE}
+#making the dataframe for the dummy area
+data = read.csv("~/Downloads/forestfires.csv")
+#Doing the same transformations as above for every variable except area
+#Take out the outliers clearly visible in ISI
+index = which(data$ISI == sort(data$ISI)[length(data$ISI)]) #removing maximum
+index_2 = which(data$FFMC == sort(data$FFMC)[1]) #removing minimum
+data = data[-c(index, index_2), ]
+#Change rain into dummy
+data$rain[data$rain >0 ] = 1
+data$rain = factor(data$rain)
+#transforming negative skewed FFMC
+data$FFMC = data$FFMC^2
+#Now making anything greater than 1 hectares as 1 and others as 0
+dummy_data = data
+dummy_data$area[dummy_data$area > 1] = 1
+dummy_data$area[dummy_data$area < 1] = 0
+dummy_data$area = factor(dummy_data$area)
+```
+
+####Modelling dummy area response
+```{r, echo = FALSE, results = "hide"}
+#Full model of temperature now then using step model to get the candidate models
+model_full = glm(area ~ ., family = binomial,data = dummy_data)
+n = nrow(dummy_data)
+backwards_AIC = step(model_full, direction = "backward") 
+forward_AIC = step(model_full, direction = "forward")
+both_AIC = step(model_full, direction = "both") 
+
+backwards_BIC = step(model_full, direction = "backward", k = log(n)) 
+forward_BIC = step(model_full, direction = "forward", k = log(n)) 
+both_BIC = step(model_full, direction = "both", k = log(n)) 
+```
+```{r, echo = FALSE, results = "hide"}
+#Chosen model using step model AIC
+cat("Model Selected Using backwards AIC")
+backwards_AIC #X, month, FFMC, rain
+cat("Model Selected Using forward AIC")
+forward_AIC #X, Y, month, day, FFMC, DMC, DC, ISI, RH, wind, rain, area (full model)
+cat("Model Selected Using both direction AIC")
+both_AIC #X, month, FFMC, rain
+
+#Chosen models using step model BIC
+cat("Model Selected Using backwards BIC")
+backwards_BIC #Intercept
+cat("Model Selected Using forward BIC")
+forward_BIC #X, Y, Month, day, FFMC, DMC, DC, ISI, temp, RH, wind, rain, area (full model)
+cat("Model Selected Using both direction BIC")
+both_BIC  #Intercept
+```
+
+ It was fascinating to see that as similar to above the six different step methods only gave me again three candidate models. I will summarize those three models in the following along with where they originated from.
+  
+1) Full Model (forward AIC and BIC)
+
+2) X, month, FFMC, rain (backwards and both AIC)
+
+3) Intercept (backwards and both BIC)
+
+For the same reason as above I do not want to consider the intercept model for the fireman to use to predict whether there will be a substantial fire or not. I will again add temperature and wind as another candidate model and only the continuous model again so here will be the four following candidate model. Moreover, note how it's very interested in the dummy variable setting of just predicting probabilities of being strong or negligible fires the best covariates changed from month + DMC + DC (in the above analysis) to the addition of X and FFMC and rain instead of DMC and DC. This, however, is not a huge surprise because I have added all the 0 points now and perhaps different covariates are stronger to predict this. 
+
+1) Full Model 
+
+2) X, month, FFMC, rain
+
+3) X, month, FFMC, rain, temp, wind
+
+4) Only Continuous variables
+
+For model selection because we are looking at response variables as only 1 or 0 instead of cross validation I will just do AIC/BIC criterias due to the complications that arise when calculating root mean square errors needed to do cross validation. (Note for CV we have to figure out what exactly the errors/residuals are, it can't simply be yi - probabilities) Here is the following result 
+
+####Model Selection using AIC/BIC
+```{r, echo = FALSE}
+#Added temp, wind model
+added_tempwind_model = glm(area ~ X + month + FFMC + rain + temp + wind, family = binomial,data = dummy_data)
+
+#Continous model
+model_continous_subset = glm(area ~ FFMC + DMC + DC + ISI + temp + RH + wind, family = binomial,data = dummy_data)
+
+#AIC BIC to compare models
+aic_values = AIC(backwards_AIC, forward_AIC, model_continous_subset, added_tempwind_model)
+bic_values = BIC(backwards_AIC, forward_AIC,model_continous_subset, added_tempwind_model)
+#Table to show my AIC/BIC values of all 7 models 
+aic_bic = as.matrix(cbind(aic_values, bic_values)[, -3]); rownames(aic_bic) = c("Y + Month + FFMC + Rain", "Full Model", "Continuous Subset Model", "Added temp and wind model"); aic_bic
+```
+  In this case the X + Month + FFMC + Rain had the lowest AIC but the model with only the continuous variables had a lower BIC. I, however, am more interested in giving a strong predicting power model to the firemans to indicate to them whether or not there wil be a big power so I will use AIC since they do not really care about parsimonious models. Thus I will choose the X + Month + FFMC + Rain as my final model. Let's take a look at how this model is doing
+  
+####Summary of our candidate model
+```{r, echo = FALSE}
+summary(backwards_AIC);
+
+#p-value for all coef being 0
+cat("P-value for all the coef being 0")
+pchisq(30.33, df = 14, lower.tail = FALSE)
+```
+  Just like the above it makes sense that if the covariates won't explain the continuous areas greater than 0, there won't be much significance in a linear model for a dummy variable either. This is exactly what we see, most of the coefficients are simply not significant at all. However, there is comfort that the difference in deviances around 30+ gives a significant p-value of less than 1% (using the pchisq()). This at least gives comfort that these covariates are doing something useful for the prediction.
+  
+####Discussion/Conclusion of Whole Project
+  In the first analysis despite doing all the necessary transformations, modelling and diagnosing, it did not change the fact that a linear model might not have been the best for the response variable area. This was further emphasized in my final analysis by looking at the diagnosis plots such as residuals vs. fitted values, etc. This dataset was quite exemplary in showing how often the response variable can have more noise than all the explanatory variable's power combined. However, because of the nature of this class and the projects instructions, I still did come up with two candidate models for different purposes, predicting and explaining. The predicting model had PCA terms to solve multicollinearity. Of course that means if the fireman had to predict, they would have to put their X explanatory variable and change it to PCAs.
+  
+  The latter part of this project was motivated by considering modelling area in terms of a different setting - the fireman simply caring of whether or not there will be a fire big enough to pay attention to. Since the first analysis just didn't consider all the unnecessary fires, thus giving a conservative estimate, I decided to explore exactly modelling those 0s also in a dummy variable setting. The linear setting, as expected, turned out to be equally as poor because even the final candidate model didn't seem so significant. However, this is really the best one can do sometimes in life. 
+  
+  One of the biggest lesson learned is that: one can clearly see through the analysis of these two questions that there are certain settings to do linear modelling and certain setting to not do linear modelling! People often forget that and just want to do linear modelling for everything, but sometimes the dataset is too noisy. This was a great reminder to the realistic limitations of linear models!
