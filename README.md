@@ -9,3 +9,5 @@ Research Projects are organized differently
 2) The Radiobiology Research will have three main folders. One for conference related documents, one for the GCRFibroCA project that was part of my first research project, and another folder labelled Identifiability Analysis for my most recent self initiated project for a planned submission to JASA.
 
 Those who want to see my most recent work is advised to look at my Hurricane Research and my Identifiability Research.
+
+Note: Because much of my research is currently ongoing and thus I cannot publicly distribute my paper, those who are interested in seeing the current work I have on any projects please send me a personal email at daewoongham@berkeley.edu
