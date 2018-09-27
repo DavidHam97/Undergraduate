@@ -10,4 +10,4 @@ Research Projects are organized differently and will be elaborated more in a REA
 
 Those who want to see my most recent work is advised to look at my Hurricane Research and my Identifiability Research.
 
-Note: Because much of my research is currently ongoing and thus I cannot publicly distribute my paper, those who are interested in seeing the current work, which include my work to submit to JASA or my hurricane research submitted nad under review to NatureGeoscience Journal, I have on any projects please send me a personal email at daewoongham@berkeley.edu
+Note: Because much of my research is currently ongoing and thus I cannot publicly distribute my paper, those who are interested in seeing my current work, which include my work I plan to submit to JASA or my submitted hurricane research work (currently under review) to NatureGeoscience Journal, please send me a personal email at daewoongham@berkeley.edu
