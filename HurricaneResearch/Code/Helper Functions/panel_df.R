@@ -13,6 +13,12 @@ track_dist = unlist(track_dist)
 watch_dist = strsplit(as.character(grid_panel_df$dist_watch), ",")
 watch_dist = unlist(watch_dist)
 
+category = strsplit(as.character(grid_panel_df$category), ",")
+category = unlist(category)
+
+hurricane = strsplit(as.character(grid_panel_df$hurricanes), ",")
+hurricane = unlist(hurricane)
+
 years = lapply(as.character(grid_panel_df$year), function(x) strsplit(x, ","))
 year = unlist(years)
 
@@ -46,36 +52,47 @@ get_comma_vec = function(input) {
 
 dist_track = get_comma_vec(track_dist)
 dist_watch = get_comma_vec(watch_dist)
+hurricane = get_comma_vec(hurricane)
+category = get_comma_vec(category)
+
 
 panel_df$dist_track = dist_track
 panel_df$dist_watch = dist_watch
+panel_df$hurricane = hurricane
+panel_df$category = category
 
 #creating balanced panels
 panel_years = sort(unique(panel_df$year))
 panel_ids = unique(panel_df$id)
 complete_df = data.frame()
 for (i in 1:length(panel_ids)) {
-  id_df = panel_df[which(panel_df$id == panel_ids[i]), -1]
+  id_df = panel_df[which(panel_df$id == panel_ids[i]), ]
   missing_years = setdiff(panel_years, id_df$year)
   n = length(missing_years)
-  new_id_df = data.frame(id = rep(id_df$id, length.out = n), year = missing_years, Freq = rep(0, length.out = n), cumu = rep(0, length.out = n), dist_track = rep(-999, length.out = n), dist_watch = rep(-999, length.out = n), nightlights = rep(-999, length.out = n), avg_news = rep(-999, length.out = n), means = rep(-999, length.out = n))
+  new_id_df = data.frame(id = rep(id_df$id, length.out = n), year = missing_years, Freq = rep(0, length.out = n), cumu = rep(0, length.out = n), dist_track = rep(NA, length.out = n), dist_watch = rep(NA, length.out = n), category = rep(NA, length.out = n), hurricane = rep(NA, length.out = n))
   new_df = rbind(id_df, new_id_df)
   new_df = new_df[order(new_df$year), ]
   complete_df = rbind(complete_df, new_df)
 }
 panel_df = complete_df
 
-#adding nightlights
-nightlights_names = colnames(grid_panel_df_nightlights)[13:34]
+#Adding nightlights, county
+nightlights_names = colnames(full_df)[14:35]
 nightlights_names = sort(nightlights_names)
 nightlight_years = 1992:2013 
-
 panel_df$nightlights = NA
-panel_df = complete_df
-for (i in 1:length(panel_df$id)) {
-  index = which(as.character(grid_all_df$long_lat) == as.character(panel_df$id)[i])
+panel_df$county = NA
+for (i in 1:nrow(panel_df)) {
+  index = which(as.character(full_df$long_lat) == as.character(panel_df$id)[i])
   nightlights_index = which(nightlight_years == as.numeric(as.character(panel_df$year[i])))
-  col_index = nightlights_names[nightlights_index + 1]
-  nightlights = grid_all_df[index, col_index]
+  if (length(nightlights_index) == 0) {
+    nightlights = NA
+  } else {
+    col_index = nightlights_names[nightlights_index]
+    nightlights = full_df[index, col_index]
+  }
   panel_df$nightlights[i] = nightlights
+  county = as.character(full_df$county[index])
+  panel_df$county[i] = county
 }
+save(panel_df, file = "panel.RData")
