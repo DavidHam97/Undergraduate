@@ -1,5 +1,5 @@
 #Creates one master gridpoint data not panel yet 
-grid_point_df = function(year = 1970:2016) {
+grid_point_df = function(year = 1970:2016, path = "/Users/Ham/Desktop/Project/Hurricane/filedata/hurricane_csvs/csv_county/") {
   y = as.numeric(stri_extract_first_regex(csv_names, "[0-9]+"))
   index = vector()
   for (i in 1:length(year)) {
@@ -7,15 +7,16 @@ grid_point_df = function(year = 1970:2016) {
   }
   df_grid = data.frame()
   for (i in index) {
-    b = read.csv(file = paste0("~/Downloads/csv_county/", csv_names[i]), header = TRUE)
-    b = b[, c("long", "lat", "max_category", "std_news", "county", "distance_track", "distance_watch")]
+    b = read.csv(file = paste0(path, csv_names[i]), header = TRUE)
+    b = b[, c("long", "lat", "max_category", "county", "distance_track", "distance_watch")]
     b$hur_names = gsub("^(.*?)_.*", "\\1", csv_names[i])
     b$years = y[i]
     df_grid = rbind(df_grid, b)
   }
   df_grid$long_lat = paste0(df_grid$long, ",",df_grid$lat)
   hurricane = data.table(df_grid)
-  df_grid_aggregate = data.frame(hurricane[ , list(std_news=mean(std_news)),by = long_lat])
+  df_grid$news = df_grid$distance_track - df_grid$distance_watch
+  df_grid_aggregate = data.frame(hurricane[ , list(news=mean(news)),by = long_lat])
   df_grid_aggregate$long = as.numeric(sapply(strsplit((df_grid_aggregate$long_lat), ","), "[", 1))
   df_grid_aggregate$lat = as.numeric(sapply(strsplit((df_grid_aggregate$long_lat), ","), "[", 2))
   grid_counts = table(df_grid$long_lat)
@@ -63,5 +64,4 @@ grid_point_df = function(year = 1970:2016) {
   return(grid_counts)
 }
 
-grid_df = grid_point_df(year = 1991:2012)
-
+grid_df = grid_point_df()
