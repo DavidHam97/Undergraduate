@@ -5,4 +5,5 @@ The main script will contain brief information for every major part of the codin
 
 2) Helper Function Folder: In the Helper Function will be much longer scripts containing the code for each part that was mentioned in the main script.
 
-Note in order to properly run all this code, make sure your path is properly redefined in order to not have any error message. 
+Note in order to properly run all this code, make sure your path is properly redefined in order to not have any error message. I have also attached one of the raw data file we used 
+in our project supplied directly by one of the employee's in the National Hurricane Center. 
