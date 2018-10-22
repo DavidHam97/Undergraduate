@@ -5,5 +5,5 @@ The main script will contain brief information for every major part of the codin
 
 2) Helper Function Folder: In the Helper Function will be much longer scripts containing the code for each part that was mentioned in the main script.
 
-Because this research relied on outside datasets and other computationally expensive api's I have also attached a raw_data folder for our results to be reproducible
+Because this research relied on outside datasets and other computationally expensive API's I have also attached a raw_data folder for our results to be reproducible.
 This is located in a folder called "rawdata"
